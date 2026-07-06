@@ -19,7 +19,7 @@ Vercel = deploying. (Free)
 Clerk = auth. (Free)
 Stripe = payments. (2.9%)
 Resend = emails. (Free)
-OpenSwarm = agent orchestration. (Free — open source)
+OpenSwarm = agent orchestration. (Free)
 
 Total monthly cost to run a
 startup: ~$20
@@ -41,7 +41,7 @@ Founder's Pack
 - Supabase = backend. (Free)
 - Vercel = deploying. (Free)
 - GitHub = version control. (Free)
-- OpenSwarm = research. (Free — open source)
+- OpenSwarm = research. (Free)
 - Cloudflare = DNS. (Free)
 - Sentry = error tracking. (Free)
 
@@ -62,7 +62,7 @@ Descript = editing. ($24/mo)
 CapCut = cuts. (Free)
 ElevenLabs = voiceover. (Free tier)
 Midjourney = images. ($10/mo)
-OpenSwarm = scripts. (Free — open source)
+OpenSwarm = scripts. (Free)
 Buffer = scheduling. (Free)
 
 One person can run a whole
@@ -78,7 +78,7 @@ HASHTAGS: #contentcreation #creatoreconomy #openswarm
 ```
 Apollo = lead lists. ($49/mo)
 Clay = enrichment. ($134/mo)
-OpenSwarm = outreach. (Free — open source)
+OpenSwarm = outreach. (Free)
 Instantly = sending. ($37/mo)
 Google Sheets = tracking. (Free)
 
@@ -112,7 +112,7 @@ Marketing Stack
 
 - Figma = design. (Free)
 - Canva = graphics. (Free)
-- OpenSwarm = campaigns. (Free — open source)
+- OpenSwarm = campaigns. (Free)
 - Meta Ads = paid. (variable)
 - Beehiiv = newsletter. (Free)
 - Notion = planning. (Free)
@@ -130,7 +130,7 @@ HASHTAGS: #marketing #solopreneur #openswarm
 ```
 Apify = scraping. ($49/mo)
 Bright Data = proxies. (pay as you go)
-OpenSwarm = data analysis. (Free — open source)
+OpenSwarm = data analysis. (Free)
 Airtable = storage. (Free)
 Sheets = export. (Free)
 
@@ -164,7 +164,7 @@ HASHTAGS: #design #ui #creatoreconomy
 ```
 Descript = editing. ($24/mo)
 VidIQ = topics. ($16/mo)
-OpenSwarm = scripts. (Free — open source)
+OpenSwarm = scripts. (Free)
 Photoshop = thumbnails. ($23/mo)
 TubeBuddy = SEO. (Free)
 
@@ -204,7 +204,7 @@ HASHTAGS: #indiehacker #buildinpublic #saas
 
 ```
 Beehiiv = hosting. (Free)
-OpenSwarm = research. (Free — open source)
+OpenSwarm = research. (Free)
 Canva = graphics. (Free)
 Typefully = repurposing. (Free tier)
 Google Analytics = tracking. (Free)
@@ -222,7 +222,7 @@ HASHTAGS: #newsletter #creatoreconomy #writing
 ```
 Shopify = store. ($39/mo)
 Klaviyo = email + SMS. (Free tier)
-OpenSwarm = product copy. (Free — open source)
+OpenSwarm = product copy. (Free)
 Canva = creatives. (Free)
 Triple Whale = analytics. ($129/mo)
 
@@ -261,7 +261,7 @@ Freelancer Stack
 - Notion = everything. (Free)
 - Stripe = invoices. (2.9%)
 - Calendly = booking. (Free)
-- OpenSwarm = proposals. (Free — open source)
+- OpenSwarm = proposals. (Free)
 - Loom = client updates. (Free)
 
 Run a one-person agency out of
@@ -276,7 +276,7 @@ HASHTAGS: #freelance #solopreneur #agency
 
 ```
 Taplio = scheduling. ($39/mo)
-OpenSwarm = post drafts. (Free — open source)
+OpenSwarm = post drafts. (Free)
 Canva = carousels. (Free)
 Shield = analytics. ($8/mo)
 Sales Nav = research. ($99/mo)
@@ -293,7 +293,7 @@ HASHTAGS: #linkedin #personalbrand #contentcreation
 
 ```
 Crunchbase = investor lists. ($49/mo)
-OpenSwarm = the deck. (Free — open source)
+OpenSwarm = the deck. (Free)
 DocSend = sharing. ($15/mo)
 Airtable = pipeline. (Free)
 Calendly = meetings. (Free)
@@ -313,7 +313,7 @@ Podcast Stack
 
 - Riverside = recording. ($15/mo)
 - Descript = editing. ($24/mo)
-- OpenSwarm = show notes. (Free — open source)
+- OpenSwarm = show notes. (Free)
 - Buzzsprout = hosting. ($12/mo)
 - Canva = cover art. (Free)
 
@@ -349,7 +349,7 @@ HASHTAGS: #dataanalytics #data #analytics
 ```
 ClickUp = projects. (Free tier)
 Slack = comms. (Free)
-OpenSwarm = client work. (Free — open source)
+OpenSwarm = client work. (Free)
 Harvest = time tracking. ($11/mo)
 Stripe = billing. (2.9%)
 
@@ -365,7 +365,7 @@ HASHTAGS: #agency #operations #business
 
 ```
 Notion = planning. (Free)
-OpenSwarm = content ideas. (Free — open source)
+OpenSwarm = content ideas. (Free)
 CapCut = editing. (Free)
 Canva = graphics. (Free)
 Later = scheduling. (Free tier)
@@ -384,7 +384,7 @@ HASHTAGS: #personalbrand #creatoreconomy #socialmedia
 
 ```
 LinkedIn = sourcing. ($99/mo)
-OpenSwarm = screening. (Free — open source)
+OpenSwarm = screening. (Free)
 Ashby = ATS. (variable)
 Calendly = scheduling. (Free)
 Notion = notes. (Free)
@@ -418,7 +418,7 @@ Solo Game Dev
 
 - Unity = engine. (Free tier)
 - Blender = 3D. (Free)
-- OpenSwarm = dialogue. (Free — open source)
+- OpenSwarm = dialogue. (Free)
 - Suno = music. (Free tier)
 - Steam = publishing. ($100 once)
 
@@ -433,7 +433,7 @@ HASHTAGS: #gamedev #indiedev #unity
 
 ```
 Teachable = hosting. ($39/mo)
-OpenSwarm = the curriculum. (Free — open source)
+OpenSwarm = the curriculum. (Free)
 Descript = lesson videos. ($24/mo)
 Canva = workbooks. (Free)
 ConvertKit = email. (Free tier)
@@ -450,7 +450,7 @@ HASHTAGS: #onlinecourse #creatoreconomy #education
 
 ```
 FollowUpBoss = CRM. ($69/mo)
-OpenSwarm = follow-ups. (Free — open source)
+OpenSwarm = follow-ups. (Free)
 Canva = flyers. (Free)
 CapCut = listing reels. (Free)
 Calendly = showings. (Free)
@@ -468,7 +468,7 @@ HASHTAGS: #realestate #realtor #proptech
 ```
 HubSpot = CRM. (Free tier)
 Apollo = prospecting. ($49/mo)
-OpenSwarm = decks. (Free — open source)
+OpenSwarm = decks. (Free)
 Gong = call analysis. (variable)
 Loom = async demos. (Free)
 
@@ -506,7 +506,7 @@ Editor's Pack
 
 - CapCut = cuts. (Free)
 - DaVinci = color. (Free)
-- OpenSwarm = scripts. (Free — open source)
+- OpenSwarm = scripts. (Free)
 - Epidemic Sound = music. ($9/mo)
 - Frame.io = review. (Free tier)
 
@@ -524,7 +524,7 @@ HASHTAGS: #videoediting #contentcreation #capcut
 
 ```
 Zendesk = tickets. ($55/mo)
-OpenSwarm = replies. (Free — open source)
+OpenSwarm = replies. (Free)
 Notion = help docs. (Free)
 Slack = escalations. (Free)
 Loom = walkthroughs. (Free)
@@ -544,7 +544,7 @@ Cursor = coding. ($20/mo)
 Supabase = backend. (Free)
 Vercel = hosting. (Free)
 Stripe = payments. (2.9%)
-OpenSwarm = marketing. (Free — open source)
+OpenSwarm = marketing. (Free)
 Plausible = analytics. ($9/mo)
 
 Total monthly cost: ~$29
@@ -578,7 +578,7 @@ HASHTAGS: #twitter #creatoreconomy #buildinpublic
 
 ```
 Ahrefs = keywords. ($129/mo)
-OpenSwarm = the articles. (Free — open source)
+OpenSwarm = the articles. (Free)
 WordPress = hosting. (Free)
 Cloudflare = CDN. (Free)
 Ezoic = ads. (revshare)
@@ -598,7 +598,7 @@ PM Toolkit
 
 - Linear = tickets. (Free tier)
 - Figma = specs. (Free)
-- OpenSwarm = PRDs. (Free — open source)
+- OpenSwarm = PRDs. (Free)
 - Amplitude = metrics. (Free tier)
 - Notion = roadmap. (Free)
 
@@ -614,7 +614,7 @@ HASHTAGS: #productmanagement #product #saas
 
 ```
 Google Business = listing. (Free)
-OpenSwarm = the posts. (Free — open source)
+OpenSwarm = the posts. (Free)
 Canva = flyers. (Free)
 CapCut = reels. (Free)
 Later = scheduling. (Free tier)
@@ -649,7 +649,7 @@ HASHTAGS: #writing #author #substack
 ```
 Ahrefs = keywords. ($129/mo)
 Screaming Frog = audits. ($259/yr)
-OpenSwarm = the content. (Free — open source)
+OpenSwarm = the content. (Free)
 Surfer = optimization. ($89/mo)
 Looker = reporting. (Free)
 
@@ -667,7 +667,7 @@ HASHTAGS: #seo #agency #marketing
 
 ```
 Helium 10 = research. ($39/mo)
-OpenSwarm = the listings. (Free — open source)
+OpenSwarm = the listings. (Free)
 Canva = graphics. (Free)
 Jungle Scout = data. ($49/mo)
 Sellerboard = profit. ($19/mo)
@@ -702,7 +702,7 @@ Fitness App Stack
 - Expo = mobile. (Free)
 - Supabase = backend. (Free)
 - RevenueCat = subscriptions. (Free tier)
-- OpenSwarm = the content. (Free — open source)
+- OpenSwarm = the content. (Free)
 - PostHog = analytics. (Free)
 
 Total monthly cost: $0 to start
@@ -719,7 +719,7 @@ HASHTAGS: #buildinpublic #mobileapp #startup
 
 ```
 Calendly = booking. (Free)
-OpenSwarm = decks. (Free — open source)
+OpenSwarm = decks. (Free)
 Notion = client hub. (Free)
 Stripe = invoicing. (2.9%)
 Loom = updates. (Free)
@@ -753,7 +753,7 @@ HASHTAGS: #community #discord #creatoreconomy
 
 ```
 LinkedIn = listings. (Free)
-OpenSwarm = tailored resumes. (Free — open source)
+OpenSwarm = tailored resumes. (Free)
 Teal = tracking. (Free tier)
 Calendly = interviews. (Free)
 Notion = prep notes. (Free)
@@ -771,7 +771,7 @@ HASHTAGS: #jobsearch #career #resume
 ```
 Etsy = storefront. (fees)
 eRank = keywords. ($6/mo)
-OpenSwarm = listings. (Free — open source)
+OpenSwarm = listings. (Free)
 Canva = product images. (Free)
 Printful = fulfillment. (per order)
 
@@ -793,7 +793,7 @@ Fintech Side Project
 - Plaid = bank data. (Free tier)
 - Supabase = backend. (Free)
 - Vercel = hosting. (Free)
-- OpenSwarm = data analysis. (Free — open source)
+- OpenSwarm = data analysis. (Free)
 - Stripe = payments. (2.9%)
 
 Build a money app on
@@ -828,7 +828,7 @@ Cursor = coding. ($20/mo)
 Supabase = backend. (Free)
 Vercel = hosting. (Free)
 LemonSqueezy = payments. (5%)
-OpenSwarm = support. (Free — open source)
+OpenSwarm = support. (Free)
 
 Total monthly cost: ~$20
 
@@ -861,7 +861,7 @@ HASHTAGS: #productivity #automation #news
 
 ```
 Square = POS. (2.6%)
-OpenSwarm = the posts. (Free — open source)
+OpenSwarm = the posts. (Free)
 Canva = menus. (Free)
 Google Business = listing. (Free)
 CapCut = reels. (Free)
@@ -882,7 +882,7 @@ Data Stack
 - Fivetran = ingestion. (variable)
 - BigQuery = warehouse. (pay per use)
 - dbt = modeling. (Free tier)
-- OpenSwarm = data analysis. (Free — open source)
+- OpenSwarm = data analysis. (Free)
 - Metabase = dashboards. (Free)
 ```
 CAPTION: The modern data stack. OpenSwarm is the analyst layer on top.
@@ -897,7 +897,7 @@ Cursor = coding. ($20/mo)
 v0 = UI. (Free tier)
 Supabase = backend. (Free)
 Vercel = deploy. (Free)
-OpenSwarm = landing copy. (Free — open source)
+OpenSwarm = landing copy. (Free)
 
 Total monthly cost: ~$20
 
@@ -913,7 +913,7 @@ HASHTAGS: #startup #buildinpublic #mvp
 
 ```
 GA4 = web analytics. (Free)
-OpenSwarm = the reports. (Free — open source)
+OpenSwarm = the reports. (Free)
 Looker Studio = dashboards. (Free)
 Hotjar = heatmaps. (Free tier)
 Slack = alerts. (Free)
@@ -947,7 +947,7 @@ HASHTAGS: #legaltech #startup #operations
 
 ```
 CapCut = editing. (Free)
-OpenSwarm = the hooks. (Free — open source)
+OpenSwarm = the hooks. (Free)
 Canva = thumbnails. (Free)
 Beacons = link in bio. (Free)
 Notion = brand deals. (Free)
@@ -966,7 +966,7 @@ HASHTAGS: #ugc #creatoreconomy #contentcreation
 Nonprofit Stack
 
 - Google Workspace = ops. (Free)
-- OpenSwarm = grant writing. (Free — open source)
+- OpenSwarm = grant writing. (Free)
 - Canva = campaigns. (Free)
 - Stripe = donations. (2.2%)
 - Notion = the wiki. (Free)
@@ -1002,7 +1002,7 @@ HASHTAGS: #trading #investing #markets
 ```
 WordPress = CMS. (Free)
 Cloudflare = CDN. (Free)
-OpenSwarm = the content. (Free — open source)
+OpenSwarm = the content. (Free)
 Rank Math = SEO. (Free)
 Namecheap = domain. ($12/yr)
 
@@ -1035,7 +1035,7 @@ HASHTAGS: #design #freelance #ux
 ### 58 — Presentations (A)
 
 ```
-OpenSwarm = the slides. (Free — open source)
+OpenSwarm = the slides. (Free)
 Figma = polish. (Free)
 Unsplash = images. (Free)
 Pitch = presenting. (Free tier)
@@ -1056,7 +1056,7 @@ Sales Stack
 
 - HubSpot = CRM. (Free tier)
 - Clay = enrichment. ($134/mo)
-- OpenSwarm = account research. (Free — open source)
+- OpenSwarm = account research. (Free)
 - Calendly = booking. (Free)
 - Loom = demos. (Free)
 ```
@@ -1071,7 +1071,7 @@ HASHTAGS: #sales #crm #b2b
 Expo = build. (Free)
 Supabase = backend. (Free)
 RevenueCat = payments. (Free tier)
-OpenSwarm = the ASO copy. (Free — open source)
+OpenSwarm = the ASO copy. (Free)
 Sentry = crashes. (Free)
 
 Total monthly cost: $0 to start
@@ -1088,7 +1088,7 @@ HASHTAGS: #mobileapp #reactnative #buildinpublic
 
 ```
 PropStream = leads. ($99/mo)
-OpenSwarm = deal analysis. (Free — open source)
+OpenSwarm = deal analysis. (Free)
 Google Voice = calls. (Free)
 DocuSign = contracts. ($15/mo)
 Trello = pipeline. (Free)
@@ -1122,7 +1122,7 @@ HASHTAGS: #substack #writing #creatoreconomy
 
 ```
 PostHog = analytics. (Free)
-OpenSwarm = the experiments. (Free — open source)
+OpenSwarm = the experiments. (Free)
 Mailchimp = email. (Free tier)
 Hotjar = behavior. (Free tier)
 Notion = the growth log. (Free)
@@ -1142,7 +1142,7 @@ Finance Ops
 
 - Stripe = payments. (2.9%)
 - Mercury = banking. (Free)
-- OpenSwarm = the reports. (Free — open source)
+- OpenSwarm = the reports. (Free)
 - Ramp = expenses. (Free)
 - QuickBooks = books. ($30/mo)
 
@@ -1158,7 +1158,7 @@ HASHTAGS: #startup #finance #operations
 
 ```
 Airbnb = listings. (fees)
-OpenSwarm = guest messages. (Free — open source)
+OpenSwarm = guest messages. (Free)
 Canva = photo edits. (Free)
 PriceLabs = pricing. ($20/mo)
 Google Sheets = tracking. (Free)
@@ -1192,7 +1192,7 @@ HASHTAGS: #developer #devtools #buildinpublic
 
 ```
 HoneyBook = bookings. ($36/mo)
-OpenSwarm = client emails. (Free — open source)
+OpenSwarm = client emails. (Free)
 Canva = mood boards. (Free)
 Pixieset = galleries. (Free tier)
 Calendly = consults. (Free)
@@ -1213,7 +1213,7 @@ Micro Tool Stack
 - Cursor = coding. ($20/mo)
 - Plasmo = extension. (Free)
 - LemonSqueezy = payments. (5%)
-- OpenSwarm = store copy. (Free — open source)
+- OpenSwarm = store copy. (Free)
 - Vercel = landing page. (Free)
 
 Total monthly cost: ~$20
@@ -1230,7 +1230,7 @@ HASHTAGS: #indiehacker #chromeextension #buildinpublic
 
 ```
 Skool = the community. ($99/mo)
-OpenSwarm = the content. (Free — open source)
+OpenSwarm = the content. (Free)
 Loom = lessons. (Free)
 Stripe = billing. (via Skool)
 Notion = resources. (Free)
@@ -1264,7 +1264,7 @@ HASHTAGS: #marketresearch #consulting #strategy
 
 ```
 Clio = practice mgmt. ($49/mo)
-OpenSwarm = the drafting. (Free — open source)
+OpenSwarm = the drafting. (Free)
 DocuSign = signatures. ($15/mo)
 Calendly = consults. (Free)
 Stripe = billing. (2.9%)
@@ -1283,7 +1283,7 @@ HASHTAGS: #legaltech #accounting #smallbusiness
 ```
 TikTok Shop = storefront. (fees)
 CapCut = videos. (Free)
-OpenSwarm = the scripts. (Free — open source)
+OpenSwarm = the scripts. (Free)
 Canva = graphics. (Free)
 Printful = fulfillment. (per order)
 
@@ -1316,7 +1316,7 @@ HASHTAGS: #studytips #student #productivity
 
 ```
 Calendly = booking. (Free)
-OpenSwarm = the programs. (Free — open source)
+OpenSwarm = the programs. (Free)
 Zoom = sessions. (Free tier)
 Stripe = payments. (2.9%)
 Notion = client hub. (Free)
@@ -1351,7 +1351,7 @@ Shopify App Stack
 - Remix = framework. (Free)
 - Supabase = backend. (Free)
 - Fly.io = hosting. (Free tier)
-- OpenSwarm = the listing. (Free — open source)
+- OpenSwarm = the listing. (Free)
 - Sentry = errors. (Free)
 
 Total monthly cost: $0 to start
@@ -1368,7 +1368,7 @@ HASHTAGS: #shopify #appdevelopment #buildinpublic
 
 ```
 Muck Rack = journalist DB. (variable)
-OpenSwarm = the pitches. (Free — open source)
+OpenSwarm = the pitches. (Free)
 Notion = tracker. (Free)
 Gmail = sending. (Free)
 Calendly = interviews. (Free)
@@ -1386,7 +1386,7 @@ HASHTAGS: #pr #startup #media
 ```
 Expo = mobile. (Free)
 Supabase = backend. (Free)
-OpenSwarm = the lessons. (Free — open source)
+OpenSwarm = the lessons. (Free)
 ElevenLabs = audio. (Free tier)
 RevenueCat = payments. (Free tier)
 
@@ -1406,7 +1406,7 @@ HASHTAGS: #edtech #buildinpublic #mobileapp
 People Ops Stack
 
 - Notion = the wiki. (Free)
-- OpenSwarm = the handbook. (Free — open source)
+- OpenSwarm = the handbook. (Free)
 - Deel = payroll. (variable)
 - Lattice = reviews. (variable)
 - Slack = comms. (Free)
@@ -1440,7 +1440,7 @@ HASHTAGS: #interiordesign #architecture #freelance
 
 ```
 Notion = the metrics. (Free)
-OpenSwarm = the write-up. (Free — open source)
+OpenSwarm = the write-up. (Free)
 Figma = the charts. (Free)
 Gmail = sending. (Free)
 Airtable = the CRM. (Free)
@@ -1457,7 +1457,7 @@ HASHTAGS: #founder #fundraising #startup
 
 ```
 Printful = fulfillment. (per order)
-OpenSwarm = the designs. (Free — open source)
+OpenSwarm = the designs. (Free)
 Shopify = store. ($39/mo)
 Canva = mockups. (Free)
 Meta Ads = traffic. (variable)
@@ -1476,7 +1476,7 @@ HASHTAGS: #printondemand #ecommerce #dropshipping
 Webinar Funnel
 
 - Zoom = hosting. ($15/mo)
-- OpenSwarm = the slides. (Free — open source)
+- OpenSwarm = the slides. (Free)
 - ConvertKit = emails. (Free tier)
 - Canva = promo. (Free)
 - Stripe = checkout. (2.9%)
@@ -1508,7 +1508,7 @@ HASHTAGS: #opensource #developer #devtools
 ```
 Shopify = store. ($39/mo)
 Klaviyo = email. (Free tier)
-OpenSwarm = the campaigns. (Free — open source)
+OpenSwarm = the campaigns. (Free)
 Later = social. (Free tier)
 Meta Ads = paid. (variable)
 
@@ -1526,7 +1526,7 @@ HASHTAGS: #dtc #ecommerce #fashion
 
 ```
 Beehiiv = newsletter. (Free)
-OpenSwarm = the media kit. (Free — open source)
+OpenSwarm = the media kit. (Free)
 Hunter = emails. (Free tier)
 Airtable = deal tracker. (Free)
 Stripe = invoicing. (2.9%)
@@ -1560,7 +1560,7 @@ HASHTAGS: #qa #testing #developer
 
 ```
 LinkedIn = attendee research. ($99/mo)
-OpenSwarm = the intros. (Free — open source)
+OpenSwarm = the intros. (Free)
 Airtable = the contact list. (Free)
 Calendly = meetings. (Free)
 Canva = one-pagers. (Free)
@@ -1579,7 +1579,7 @@ HASHTAGS: #networking #events #b2b
 Food Creator Stack
 
 - CapCut = editing. (Free)
-- OpenSwarm = recipes. (Free — open source)
+- OpenSwarm = recipes. (Free)
 - Canva = graphics. (Free)
 - Beehiiv = newsletter. (Free)
 - Stan = digital products. ($29/mo)
@@ -1613,7 +1613,7 @@ HASHTAGS: #product #saas #userresearch
 
 ```
 Vercel = the site. (Free)
-OpenSwarm = the docs. (Free — open source)
+OpenSwarm = the docs. (Free)
 Discord = community. (Free)
 Dune = analytics. (Free tier)
 Notion = the wiki. (Free)
@@ -1634,7 +1634,7 @@ Voice Agent Stack
 
 - Vapi = voice. (pay per min)
 - Twilio = phone. (per min)
-- OpenSwarm = the call scripts. (Free — open source)
+- OpenSwarm = the call scripts. (Free)
 - Supabase = data. (Free)
 - Cal.com = booking. (Free)
 
@@ -1669,7 +1669,7 @@ HASHTAGS: #saas #customersupport #indiehacker
 
 ```
 Fourthwall = merch. (revshare)
-OpenSwarm = the designs. (Free — open source)
+OpenSwarm = the designs. (Free)
 Canva = mockups. (Free)
 Beacons = link in bio. (Free)
 CapCut = promo reels. (Free)
@@ -1686,7 +1686,7 @@ HASHTAGS: #merch #creatoreconomy #printondemand
 
 ```
 Ahrefs = keywords. ($129/mo)
-OpenSwarm = the articles. (Free — open source)
+OpenSwarm = the articles. (Free)
 Webflow = the site. ($23/mo)
 Figma = graphics. (Free)
 HubSpot = distribution. (Free tier)
@@ -1707,7 +1707,7 @@ HASHTAGS: #b2b #contentmarketing #seo
 Digital Product Stack
 
 - Gumroad = selling. (fees)
-- OpenSwarm = the product. (Free — open source)
+- OpenSwarm = the product. (Free)
 - Canva = design. (Free)
 - Beehiiv = audience. (Free)
 - Stripe = payments. (via Gumroad)
@@ -1724,7 +1724,7 @@ HASHTAGS: #digitalproducts #creatoreconomy #passiveincome
 
 ```
 Jobber = scheduling. ($29/mo)
-OpenSwarm = quotes. (Free — open source)
+OpenSwarm = quotes. (Free)
 Google Business = reviews. (Free)
 Stripe = payments. (2.9%)
 CapCut = job reels. (Free)
@@ -1759,7 +1759,7 @@ HASHTAGS: #vc #investing #startup
 ```
 Ableton = production. ($99 once)
 Suno = ideas. (Free tier)
-OpenSwarm = the release plan. (Free — open source)
+OpenSwarm = the release plan. (Free)
 DistroKid = distribution. ($23/yr)
 Canva = cover art. (Free)
 
@@ -1778,7 +1778,7 @@ Cursor = coding. ($20/mo)
 Supabase = backend. (Free)
 Vercel = hosting. (Free)
 Stripe = payments. (2.9%)
-OpenSwarm = agent orchestration. (Free — open source)
+OpenSwarm = agent orchestration. (Free)
 Cloudflare = DNS. (Free)
 
 Total monthly cost: ~$20
@@ -1796,7 +1796,7 @@ HASHTAGS: #startup #buildinpublic #openswarm
 - Every OpenSwarm line is now a **concrete function** in the same style as `Claude = coding` / `Figma = UI design` — no "AI team," no "AI features," no vague filler.
 - Labels are grounded in OpenSwarm's real capabilities: agent orchestration, research, data analysis, slides, docs, image/video gen, and outreach via its 10,000+ integrations ([VRSEN/OpenSwarm](https://github.com/VRSEN/OpenSwarm), [openswarm-ai](https://github.com/openswarm-ai/openswarm)).
 - Each label is matched to its stack, so `OpenSwarm = research` sits in research stacks, `= the slides` in deck stacks, `= outreach` in outbound stacks, etc.
-- Cost on the OpenSwarm line reads `(Free — open source)` per your call.
+- Cost on the OpenSwarm line reads `(Free)` per your call.
 - Formats (A/B/C) and closers (cost summary / single line / none) are mixed across the 100.
 - Entries 55, 71, 91 have a small disclaimer line — drop it if you don't want it on screen.
 ```

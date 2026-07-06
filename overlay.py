@@ -43,12 +43,14 @@ DEFAULTS = {
     "color": "white",
     "outline": "black",
     "border": None,      # None = auto from size
-    "spacing": 1.0,      # line leading as a fraction of size (0.8 tight .. 1.6 loose)
+    "spacing": 1.0,      # body line leading as a fraction of size
+    "header_gap": 1.6,   # gap after the top section (fraction of size)
+    "footer_gap": 1.6,   # gap before the bottom section (fraction of size)
     "upper": False,
-    "shadow": True,
+    "shadow": False,     # off = flat outline (no 3D drop shadow)
     "shadow_alpha": 0.55,
     "shadow_off": 3,
-    "speed": 1.0,        # video speed multiplier (0.25 .. 4)
+    "speed": 1.0,        # video speed multiplier
 }
 
 
@@ -131,6 +133,32 @@ def probe(video):
     return w, h, float(dur) if dur else 0.0, has_audio
 
 
+_hdr_cache = {}
+
+
+def is_hdr(video):
+    """True for HDR (PQ / HLG / bt2020) sources that need tone-mapping to SDR."""
+    if video not in _hdr_cache:
+        info = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=color_transfer,color_primaries,color_space",
+             "-of", "default=noprint_wrappers=1:nokey=1", video],
+            capture_output=True, text=True).stdout.lower()
+        _hdr_cache[video] = any(t in info for t in
+                                ("smpte2084", "arib-std-b67", "bt2020"))
+    return _hdr_cache[video]
+
+
+# HDR -> SDR (bt709) tone-map chain. Prevents the dark/washed-out look you get
+# when HDR (iPhone HLG/PQ) video is re-encoded to plain SDR without conversion.
+TONEMAP = ("zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
+           "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,"
+           "format=yuv420p")
+# Output tags so players read the tone-mapped result as SDR.
+SDR_TAGS = ["-colorspace", "bt709", "-color_primaries", "bt709",
+            "-color_trc", "bt709", "-color_range", "tv"]
+
+
 # --------------------------------------------------------- text parsing ------
 TS = re.compile(r"^\s*\[\s*(\d+):(\d{1,2})(?:\.(\d+))?\s*-\s*(\d+):(\d{1,2})(?:\.(\d+))?\s*\]\s*(.*)$")
 
@@ -207,6 +235,20 @@ def _flatten(lines, font, size, max_w):
     return out
 
 
+def _sections(lines):
+    """Split source lines into sections (groups separated by blank lines)."""
+    secs, cur = [], []
+    for l in lines:
+        if l.strip() == "":
+            if cur:
+                secs.append(cur); cur = []
+        else:
+            cur.append(l)
+    if cur:
+        secs.append(cur)
+    return secs
+
+
 def _start_y(pos, H, n, advance, size):
     extent = (n - 1) * advance + size
     if pos == "top":
@@ -257,30 +299,50 @@ def build_filter(text, W, H, opts, tmp, duration):
                                                 start + i * advance, tf(), en))
         return ",".join(chain), size
 
-    # ---- block mode: whole text as one centered, auto-fit stack ----
-    lines = [case(l) for l in clean_lines(text)]
+    # ---- block mode: sections stacked & centered, per-section gaps, auto-fit ----
+    secs = _sections([case(l) for l in clean_lines(text)])
+    nsec = len(secs)
+    hgap = float(o["header_gap"])
+    fgap = float(o["footer_gap"])
     base = int(o["size"] or max(22, round(W * 0.058)))
     autofit = opts.get("size") in (None, 0, "")
     budget = H * 0.92
-    size = base
-    while True:
+
+    def layout(size):
         border = (o["border"] if o["border"] is not None else max(1, round(size * 0.06)))
         max_w = W * 0.90 - 2 * border
-        vlines = _flatten(lines, font, size, max_w)
-        n = len(vlines)
         advance = leading * size
-        extent = (n - 1) * advance + size
-        if not autofit or extent <= budget or size <= 16:
-            break
+        placed, y = [], 0.0
+        for si, sec in enumerate(secs):
+            vlines = _flatten(sec, font, size, max_w)
+            for j, vl in enumerate(vlines):
+                placed.append((vl, y))
+                if j < len(vlines) - 1:
+                    y += advance
+            if si < nsec - 1:  # gap to next section
+                g = hgap if (nsec >= 3 and si == 0) else fgap
+                y += g * size
+        extent = (placed[-1][1] + size) if placed else size
+        return placed, extent, border
+
+    size = base
+    placed, extent, border = layout(size)
+    while autofit and extent > budget and size > 16:
         size -= 1
-    o["border"] = (o["border"] if o["border"] is not None else max(1, round(size * 0.06)))
-    advance = leading * size
-    start = _start_y(pos, H, len(vlines), advance, size)
+        placed, extent, border = layout(size)
+    o["border"] = border
+
+    if pos == "top":
+        offset = H * 0.10
+    elif pos == "bottom":
+        offset = H * 0.88 - extent
+    else:
+        offset = (H - extent) / 2.0
+
     chain = []
-    for i, vl in enumerate(vlines):
+    for vl, ry in placed:
         if vl.strip():
-            chain.append(_line_drawtext(vl, font, size, o,
-                                        start + i * advance, tf()))
+            chain.append(_line_drawtext(vl, font, size, o, offset + ry, tf()))
     return ",".join(chain), size
 
 
@@ -309,19 +371,22 @@ def render(input_path, output_path, text, opts, draft=False):
     """Burn text and write a video. draft=True renders fast/small for preview."""
     W, H, dur, has_audio = probe(input_path)
     speed = float(opts.get("speed") or 1.0)
+    hdr = is_hdr(input_path)
     with tempfile.TemporaryDirectory() as tmp:
         chain, size = build_filter(text, W, H, opts, tmp, dur)
-        vf = (f"setpts=PTS/{speed}," if abs(speed - 1.0) > 1e-3 else "") + chain
+        vf = (TONEMAP + "," if hdr else "") \
+            + (f"setpts=PTS/{speed}," if abs(speed - 1.0) > 1e-3 else "") + chain
         if draft:
-            # cap the long edge at 720 for a quick, small, still-accurate preview
-            if max(W, H) > 720:
-                vf += ",scale=720:720:force_original_aspect_ratio=decrease:force_divisible_by=2"
-            enc = ["-preset", "ultrafast", "-crf", "30"]
+            # only downscale very large sources; keep it sharp for watching
+            if max(W, H) > 1280:
+                vf += ",scale=1280:1280:force_original_aspect_ratio=decrease:force_divisible_by=2"
+            enc = ["-preset", "veryfast", "-crf", "23"]
         else:
-            enc = ["-preset", "medium", "-crf", "18"]
+            # final export: high quality
+            enc = ["-preset", "slow", "-crf", "16"]
         cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
                "-c:v", "libx264"] + enc + ["-pix_fmt", "yuv420p",
-               "-movflags", "+faststart"]
+               "-movflags", "+faststart"] + (SDR_TAGS if hdr else [])
         if has_audio and abs(speed - 1.0) > 1e-3:
             cmd += ["-filter:a", _atempo(speed), "-c:a", "aac"]
         elif has_audio:
@@ -339,8 +404,9 @@ def still(input_path, out_png, at, text, opts):
     at = max(0.0, min(at, max(0.0, dur - 0.05)))
     with tempfile.TemporaryDirectory() as tmp:
         chain, size = build_filter(text, W, H, opts, tmp, dur)
+        vf = (TONEMAP + "," if is_hdr(input_path) else "") + chain
         _run(["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", input_path,
-              "-vf", chain, "-frames:v", "1", "-update", "1", out_png])
+              "-vf", vf, "-frames:v", "1", "-update", "1", out_png])
     return size
 
 

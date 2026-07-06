@@ -74,9 +74,11 @@ def opts_from(d):
         "border": num("border", int),
         "size": (size or None),
         "spacing": num("spacing", float, 1.0),
+        "header_gap": num("header_gap", float, 1.6),
+        "footer_gap": num("footer_gap", float, 1.6),
         "speed": num("speed", float, 1.0),
         "upper": bool(d.get("upper")),
-        "shadow": d.get("shadow", True) not in (False, "false", "0", 0),
+        "shadow": bool(d.get("shadow")),
     }
 
 
@@ -308,12 +310,17 @@ PAGE = r"""<!doctype html>
           <option value="bottom">Bottom</option><option value="top">Top</option>
         </select></div>
       <div class="ctl"><label>Speed <span class="val" id="speedV">1.0×</span></label>
-        <input type="range" id="speed" min="0.25" max="3" step="0.05" value="1"></div>
+        <input type="range" id="speed" min="0.25" max="10" step="0.05" value="1"></div>
 
       <div class="ctl"><label>Font size <span class="val" id="sizeV">Auto</span></label>
         <input type="range" id="size" min="0" max="140" step="1" value="0"></div>
-      <div class="ctl"><label>Line spacing <span class="val" id="spacingV">1.00</span></label>
-        <input type="range" id="spacing" min="0.8" max="10" step="0.1" value="1"></div>
+      <div class="ctl"><label>Body line spacing <span class="val" id="spacingV">1.00</span></label>
+        <input type="range" id="spacing" min="0.6" max="10" step="0.1" value="1"></div>
+
+      <div class="ctl"><label>Header gap (top) <span class="val" id="hgapV">1.6</span></label>
+        <input type="range" id="header_gap" min="0" max="8" step="0.1" value="1.6"></div>
+      <div class="ctl"><label>Footer gap (bottom) <span class="val" id="fgapV">1.6</span></label>
+        <input type="range" id="footer_gap" min="0" max="8" step="0.1" value="1.6"></div>
 
       <div class="ctl"><label>Outline <span class="val" id="borderV">4</span></label>
         <input type="range" id="border" min="0" max="16" step="1" value="4"></div>
@@ -324,7 +331,7 @@ PAGE = r"""<!doctype html>
 
       <div class="full rowchk">
         <label class="chk"><input type="checkbox" id="upper"> UPPERCASE</label>
-        <label class="chk"><input type="checkbox" id="shadow" checked> Shadow</label>
+        <label class="chk"><input type="checkbox" id="shadow"> Shadow (3D)</label>
       </div>
     </div>
     <div class="badge" id="pvstatus"></div>
@@ -384,11 +391,14 @@ scriptSel.onchange=async()=>{
 };
 
 // slider value readouts
-const speed=$("#speed"),size=$("#size"),spacing=$("#spacing"),border=$("#border");
+const speed=$("#speed"),size=$("#size"),spacing=$("#spacing"),border=$("#border"),
+  headerGap=$("#header_gap"),footerGap=$("#footer_gap");
 function readouts(){
   $("#speedV").textContent=(+speed.value).toFixed(2)+"×";
   $("#sizeV").textContent=(+size.value===0)?"Auto":size.value+"px";
   $("#spacingV").textContent=(+spacing.value).toFixed(2);
+  $("#hgapV").textContent=(+headerGap.value).toFixed(1);
+  $("#fgapV").textContent=(+footerGap.value).toFixed(1);
   $("#borderV").textContent=border.value;
 }
 readouts();
@@ -398,7 +408,8 @@ function opts(){
     id:state.id, text:text.value, at:+scrub.value,
     mode:$("#mode").value, font:$("#font").value, position:$("#position").value,
     color:$("#color").value, outline:$("#outline").value,
-    border:+border.value, size:+size.value, spacing:+spacing.value, speed:+speed.value,
+    border:+border.value, size:+size.value, spacing:+spacing.value,
+    header_gap:+headerGap.value, footer_gap:+footerGap.value, speed:+speed.value,
     upper:$("#upper").checked, shadow:$("#shadow").checked,
   };
 }
@@ -424,7 +435,7 @@ async function doPreview(){
 
 // wire every control to live preview
 ["mode","font","position","color","outline","upper","shadow"].forEach(id=>$("#"+id).addEventListener("change",schedulePreview));
-["speed","size","spacing","border"].forEach(id=>$("#"+id).addEventListener("input",schedulePreview));
+["speed","size","spacing","header_gap","footer_gap","border"].forEach(id=>$("#"+id).addEventListener("input",schedulePreview));
 text.addEventListener("input",schedulePreview);
 scrub.addEventListener("input",()=>{ timebadge.textContent="preview @ "+(+scrub.value).toFixed(1)+"s"; schedulePreview(); });
 
