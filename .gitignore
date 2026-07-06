@@ -1,0 +1,8 @@
+# generated / user content — not part of the project
+output/
+uploads/
+assets/
+
+# python
+__pycache__/
+*.pyc
