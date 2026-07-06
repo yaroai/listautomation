@@ -1,0 +1,9 @@
+# One-click deploy config for Render (https://render.com).
+# In Render: New + -> Blueprint -> connect this repo. It builds the Dockerfile
+# (ffmpeg included) and gives you a public URL. Free plan spins down when idle.
+services:
+  - type: web
+    name: broll-editor
+    runtime: docker
+    plan: free
+    autoDeploy: true
