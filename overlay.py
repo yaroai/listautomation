@@ -151,14 +151,42 @@ def is_hdr(video):
     return _hdr_cache[video]
 
 
-# HDR -> SDR (bt709) tone-map chain. Prevents the dark/washed-out look you get
-# when HDR (iPhone HLG/PQ) video is re-encoded to plain SDR without conversion.
-TONEMAP = ("zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
-           "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,"
-           "format=yuv420p")
+# HDR -> SDR (bt709). iPhone footage is HLG/PQ HDR; converting it to plain SDR
+# without proper tone-mapping is what makes exports look dark and washed-out.
+#
+# libplacebo (GPU) gives by far the best result — brighter, richer, more shadow
+# detail — so we prefer it and fall back to a CPU zscale chain only when a GPU
+# isn't available (e.g. a headless container). A small eq lift compensates for
+# the slight flatness any HDR->SDR conversion leaves behind.
+TONEMAP_GPU = ("libplacebo=tonemapping=bt.2390:colorspace=bt709:"
+               "color_primaries=bt709:color_trc=bt709:range=tv:format=yuv420p,"
+               "eq=saturation=1.12:brightness=0.02")
+TONEMAP_CPU = ("zscale=t=linear:npl=203,format=gbrpf32le,zscale=p=bt709,"
+               "tonemap=tonemap=mobius:desat=0,zscale=t=bt709:m=bt709:r=tv,"
+               "format=yuv420p,eq=saturation=1.08:brightness=0.02")
 # Output tags so players read the tone-mapped result as SDR.
 SDR_TAGS = ["-colorspace", "bt709", "-color_primaries", "bt709",
             "-color_trc", "bt709", "-color_range", "tv"]
+
+_placebo_ok = None
+
+
+def tonemap_chain():
+    """Return the HDR->SDR filter string, preferring libplacebo when the build
+    can actually initialise it (needs a GPU/Vulkan device); else the CPU chain.
+    Result is probed once and cached."""
+    global _placebo_ok
+    if _placebo_ok is None:
+        try:
+            r = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-f", "lavfi", "-i",
+                 "color=c=gray:s=64x64", "-vf", "libplacebo=format=yuv420p",
+                 "-frames:v", "1", "-f", "null", "-"],
+                capture_output=True, text=True, timeout=30)
+            _placebo_ok = (r.returncode == 0)
+        except Exception:
+            _placebo_ok = False
+    return TONEMAP_GPU if _placebo_ok else TONEMAP_CPU
 
 
 # --------------------------------------------------------- text parsing ------
@@ -570,7 +598,7 @@ def render(input_path, output_path, text, opts, draft=False):
     hdr = is_hdr(input_path)
     with tempfile.TemporaryDirectory() as tmp:
         chain, size = build_filter(text, W, H, opts, tmp, dur)
-        vf = (TONEMAP + "," if hdr else "") \
+        vf = (tonemap_chain() + "," if hdr else "") \
             + (f"setpts=PTS/{speed}," if abs(speed - 1.0) > 1e-3 else "") + chain
         if draft:
             # only downscale very large sources; keep it sharp for watching
@@ -600,7 +628,7 @@ def still(input_path, out_png, at, text, opts):
     at = max(0.0, min(at, max(0.0, dur - 0.05)))
     with tempfile.TemporaryDirectory() as tmp:
         chain, size = build_filter(text, W, H, opts, tmp, dur)
-        vf = (TONEMAP + "," if is_hdr(input_path) else "") + chain
+        vf = (tonemap_chain() + "," if is_hdr(input_path) else "") + chain
         _run(["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", input_path,
               "-vf", vf, "-frames:v", "1", "-update", "1", out_png])
     return size
@@ -612,7 +640,7 @@ def still_clean(input_path, out_png, at):
     so dragging/resizing the text is pure client-side CSS (no ffmpeg round-trip)."""
     W, H, dur, _ = probe(input_path)
     at = max(0.0, min(at, max(0.0, dur - 0.05)))
-    vf = TONEMAP if is_hdr(input_path) else None
+    vf = tonemap_chain() if is_hdr(input_path) else None
     cmd = ["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", input_path]
     if vf:
         cmd += ["-vf", vf]
