@@ -51,6 +51,8 @@ DEFAULTS = {
     "shadow_alpha": 0.55,
     "shadow_off": 3,
     "speed": 1.0,        # video speed multiplier
+    "dx": 0.0,           # drag offset, pixels (horizontal)
+    "dy": 0.0,           # drag offset, pixels (vertical)
 }
 
 
@@ -206,17 +208,23 @@ def _color(c):
     return ("0x" + c[1:]) if c.startswith("#") else c
 
 
-def _line_drawtext(text, font, size, o, y_val, tf_path, enable=None):
-    """One single-line drawtext, horizontally centered, at an exact y pixel."""
+def _line_drawtext(text, font, size, o, y_val, tf_path, enable=None,
+                   dx=0, dy=0, border=None):
+    """One single-line drawtext, horizontally centered, at an exact y pixel.
+    dx/dy shift this line (per-section drag offset); border overrides o['border']."""
     with open(tf_path, "w", encoding="utf-8") as f:
         f.write(text)
     fe = font.replace("\\", "/").replace(":", "\\:")
     te = tf_path.replace("\\", "/").replace(":", "\\:")
+    dx = int(round(dx or 0))
+    dy = int(round(dy or 0))
+    bw = o["border"] if border is None else border
     parts = [
         f"fontfile='{fe}'", f"textfile='{te}'",
         f"fontcolor={_color(o['color'])}", f"fontsize={size}",
-        f"borderw={o['border']}", f"bordercolor={_color(o['outline'])}",
-        "x=(w-text_w)/2", f"y={round(y_val)}", "expansion=none",
+        f"borderw={bw}", f"bordercolor={_color(o['outline'])}",
+        (f"x=(w-text_w)/2+({dx})" if dx else "x=(w-text_w)/2"),
+        f"y={round(y_val) + dy}", "expansion=none",
     ]
     if o["shadow"]:
         parts += [f"shadowcolor=black@{o['shadow_alpha']}",
@@ -258,11 +266,165 @@ def _start_y(pos, H, n, advance, size):
     return (H - extent) / 2.0  # center
 
 
-def build_filter(text, W, H, opts, tmp, duration):
+def _block_layout(text, W, H, o):
+    """Shared block-mode layout (auto-fit + section gaps). Returns
+    (placed, size, border, offset, font) where `placed` is a list of
+    (visual_line, y) with y relative to the top of the whole text block
+    (add `offset` to get the actual pixel y)."""
+    font = resolve_font(o["font"])
+    leading = float(o["spacing"])
+    upper = o["upper"]
+    pos = o["position"] or "center"
+    secs = _sections([(l.upper() if upper else l) for l in clean_lines(text)])
+    nsec = len(secs)
+    hgap = float(o["header_gap"])
+    fgap = float(o["footer_gap"])
+    autofit = o["size"] is None
+    base = int(o["size"] or max(22, round(W * 0.058)))
+    budget = H * 0.92
+
+    def layout(size):
+        border = (o["border"] if o["border"] is not None else max(1, round(size * 0.06)))
+        max_w = W * 0.90 - 2 * border
+        advance = leading * size
+        placed, y = [], 0.0
+        for si, sec in enumerate(secs):
+            vlines = _flatten(sec, font, size, max_w)
+            for j, vl in enumerate(vlines):
+                placed.append((vl, y))
+                if j < len(vlines) - 1:
+                    y += advance
+            if si < nsec - 1:  # gap to next section
+                g = hgap if (nsec >= 3 and si == 0) else fgap
+                y += g * size
+        extent = (placed[-1][1] + size) if placed else size
+        return placed, extent, border
+
+    size = base
+    placed, extent, border = layout(size)
+    while autofit and extent > budget and size > 16:
+        size -= 1
+        placed, extent, border = layout(size)
+
+    if pos == "top":
+        offset = H * 0.10
+    elif pos == "bottom":
+        offset = H * 0.88 - extent
+    else:
+        offset = (H - extent) / 2.0
+    return placed, size, border, offset, font
+
+
+def block_sections(text, W, H, o):
+    """Per-section base geometry for the stacked auto-fit block layout.
+    Each blank-line-separated section becomes an independently placeable box.
+    Returns (base_size, font, sections) where each section is
+    {'src': [source lines], 'cx': centre x, 'cy': centre y} at the base size."""
+    font = resolve_font(o["font"])
+    leading = float(o["spacing"])
+    upper = o["upper"]
+    pos = o["position"] or "center"
+    hgap = float(o["header_gap"])
+    fgap = float(o["footer_gap"])
+    secs_src = _sections([(l.upper() if upper else l) for l in clean_lines(text)])
+    nsec = len(secs_src)
+    autofit = o["size"] is None
+    base = int(o["size"] or max(22, round(W * 0.058)))
+    budget = H * 0.92
+
+    def layout(size):
+        border = (o["border"] if o["border"] is not None else max(1, round(size * 0.06)))
+        max_w = W * 0.90 - 2 * border
+        advance = leading * size
+        spans, y = [], 0.0
+        for si, sec in enumerate(secs_src):
+            vlines = _flatten(sec, font, size, max_w)
+            top = y
+            y += (len(vlines) - 1) * advance     # step to the last line's top
+            spans.append((top, y + size))        # (top, bottom) of this section
+            if si < nsec - 1:
+                g = hgap if (nsec >= 3 and si == 0) else fgap
+                y += g * size
+        extent = spans[-1][1] if spans else size
+        return spans, extent
+
+    size = base
+    spans, extent = layout(size)
+    while autofit and extent > budget and size > 16:
+        size -= 1
+        spans, extent = layout(size)
+
+    if pos == "top":
+        offset = H * 0.10
+    elif pos == "bottom":
+        offset = H * 0.88 - extent
+    else:
+        offset = (H - extent) / 2.0
+
+    sections = []
+    for (top, bottom), src in zip(spans, secs_src):
+        sections.append({"src": src, "cx": W / 2.0,
+                         "cy": offset + (top + bottom) / 2.0})
+    return size, font, sections
+
+
+def _section_geom(sec_src, cx, cy, size, dx, dy, W, H, o, font):
+    """Measure one section rendered at `size`, centred at (cx+dx, cy+dy).
+    Returns (visual_lines, advance, top_base, border, bbox). No file writes."""
+    leading = float(o["spacing"])
+    border = (o["border"] if o["border"] is not None else max(1, round(size * 0.06)))
+    max_w = W * 0.90 - 2 * border
+    upper = o["upper"]
+    vlines = _flatten([(l.upper() if upper else l) for l in sec_src], font, size, max_w)
+    advance = leading * size
+    block_h = (len(vlines) - 1) * advance + size
+    top = cy - block_h / 2.0                       # base top (offset added by caller)
+    widths = [text_w(font, size, vl) for vl in vlines if vl.strip()]
+    w = max(widths) if widths else 0
+    x0 = (W - w) / 2.0
+    return vlines, advance, top, border, (x0 + dx, top + dy, x0 + w + dx, top + block_h + dy)
+
+
+def _section_chain(sec_src, cx, cy, size, dx, dy, W, H, o, font, tf_fn):
+    """drawtext chain (list) for one section + its bbox."""
+    vlines, advance, top, border, bb = _section_geom(
+        sec_src, cx, cy, size, dx, dy, W, H, o, font)
+    chain = []
+    for i, vl in enumerate(vlines):
+        if vl.strip():
+            chain.append(_line_drawtext(vl, font, size, o, top + i * advance, tf_fn(),
+                                        dx=dx, dy=dy, border=border))
+    return chain, bb
+
+
+def _sec_size(o, base, i):
+    """Per-section size override (opts['sizes'][i]) or the auto-fit base."""
+    sizes = o.get("sizes") or []
+    if i < len(sizes) and sizes[i]:
+        try:
+            return int(sizes[i])
+        except (ValueError, TypeError):
+            pass
+    return base
+
+
+def _sec_offset(o, i):
+    offsets = o.get("offsets") or []
+    if i < len(offsets) and offsets[i]:
+        try:
+            return float(offsets[i][0] or 0), float(offsets[i][1] or 0)
+        except (ValueError, TypeError, IndexError):
+            pass
+    return 0.0, 0.0
+
+
+def build_filter(text, W, H, opts, tmp, duration, only_section=None, zero_offsets=False):
     """Return (drawtext_chain, used_size). No speed filter here.
 
-    Each visual line is its own drawtext placed at an exact y, so the line
-    advance is exactly `leading * size` for any font."""
+    Block mode places each blank-line section independently (its own size +
+    dx/dy). only_section renders just that section; zero_offsets ignores the
+    per-section drag offsets (used for the transparent editor layers, whose
+    offset is applied in CSS instead)."""
     o = dict(DEFAULTS)
     o.update({k: v for k, v in opts.items() if v is not None})
     font = resolve_font(o["font"])
@@ -299,51 +461,85 @@ def build_filter(text, W, H, opts, tmp, duration):
                                                 start + i * advance, tf(), en))
         return ",".join(chain), size
 
-    # ---- block mode: sections stacked & centered, per-section gaps, auto-fit ----
-    secs = _sections([case(l) for l in clean_lines(text)])
-    nsec = len(secs)
-    hgap = float(o["header_gap"])
-    fgap = float(o["footer_gap"])
-    base = int(o["size"] or max(22, round(W * 0.058)))
-    autofit = opts.get("size") in (None, 0, "")
-    budget = H * 0.92
-
-    def layout(size):
-        border = (o["border"] if o["border"] is not None else max(1, round(size * 0.06)))
-        max_w = W * 0.90 - 2 * border
-        advance = leading * size
-        placed, y = [], 0.0
-        for si, sec in enumerate(secs):
-            vlines = _flatten(sec, font, size, max_w)
-            for j, vl in enumerate(vlines):
-                placed.append((vl, y))
-                if j < len(vlines) - 1:
-                    y += advance
-            if si < nsec - 1:  # gap to next section
-                g = hgap if (nsec >= 3 and si == 0) else fgap
-                y += g * size
-        extent = (placed[-1][1] + size) if placed else size
-        return placed, extent, border
-
-    size = base
-    placed, extent, border = layout(size)
-    while autofit and extent > budget and size > 16:
-        size -= 1
-        placed, extent, border = layout(size)
-    o["border"] = border
-
-    if pos == "top":
-        offset = H * 0.10
-    elif pos == "bottom":
-        offset = H * 0.88 - extent
-    else:
-        offset = (H - extent) / 2.0
-
+    # ---- block mode: each section is an independent, movable/resizable box ----
+    size, font, sections = block_sections(text, W, H, o)
+    idxs = range(len(sections)) if only_section is None else [only_section]
     chain = []
-    for vl, ry in placed:
-        if vl.strip():
-            chain.append(_line_drawtext(vl, font, size, o, offset + ry, tf()))
+    for i in idxs:
+        if i < 0 or i >= len(sections):
+            continue
+        sec = sections[i]
+        sz = _sec_size(o, size, i)
+        dx, dy = (0.0, 0.0) if zero_offsets else _sec_offset(o, i)
+        c, _ = _section_chain(sec["src"], sec["cx"], sec["cy"], sz, dx, dy, W, H, o, font, tf)
+        chain.extend(c)
     return ",".join(chain), size
+
+
+def section_bboxes(input_path, text, opts):
+    """Per-section base bounding boxes (dx=dy=0, at each section's current
+    size) for drawing the editor's selection boxes + resize handles."""
+    W, H, dur, _ = probe(input_path)
+    o = dict(DEFAULTS)
+    o.update({k: v for k, v in opts.items() if v is not None})
+    if o["mode"] != "block":
+        x0, y0, x1, y1, size = text_bbox(text, W, H, opts, dur, 0)
+        return [{"x0": x0, "y0": y0, "x1": x1, "y1": y1, "size": size}]
+    size, font, sections = block_sections(text, W, H, o)
+    out = []
+    for i, sec in enumerate(sections):
+        sz = _sec_size(o, size, i)
+        _, _, _, _, bb = _section_geom(sec["src"], sec["cx"], sec["cy"], sz,
+                                       0, 0, W, H, o, font)
+        out.append({"x0": bb[0], "y0": bb[1], "x1": bb[2], "y1": bb[3], "size": sz})
+    return out
+
+
+def text_bbox(text, W, H, opts, duration, at=0.0):
+    """Bounding box (x0, y0, x1, y1, size) of the rendered text in pixel
+    space, including the dx/dy drag offset. Mirrors build_filter's layout
+    math so the UI can draw resize handles aligned with the real render."""
+    o = dict(DEFAULTS)
+    o.update({k: v for k, v in opts.items() if v is not None})
+    upper = o["upper"]
+    dx = float(o.get("dx", 0) or 0)
+    dy = float(o.get("dy", 0) or 0)
+
+    def case(s):
+        return s.upper() if upper else s
+
+    if o["mode"] == "captions":
+        font = resolve_font(o["font"])
+        leading = float(o["spacing"])
+        pos = o["position"] or "bottom"
+        caps = parse_captions(clean_lines(text), duration)
+        if not caps:
+            return (0.0, 0.0, 0.0, 0.0, 0)
+        active = next((c for c in caps if c["start"] <= at < c["end"]), caps[0])
+        size = int(o["size"] or max(22, round(W * 0.058)))
+        border = (o["border"] if o["border"] is not None else max(1, round(size * 0.06)))
+        advance = leading * size
+        max_w = W * 0.90 - 2 * border
+        vlines = _flatten([case(active["text"])], font, size, max_w)
+        n = len(vlines)
+        start = _start_y(pos, H, n, advance, size)
+        widths = [text_w(font, size, vl) for vl in vlines if vl.strip()]
+        w = max(widths) if widths else 0
+        x0 = (W - w) / 2.0
+        return (x0 + dx, start + dy, x0 + w + dx, start + (n - 1) * advance + size + dy, size)
+
+    placed, size, border, offset, font = _block_layout(text, W, H, o)
+    widths = [text_w(font, size, vl) for vl, _ in placed if vl.strip()]
+    w = max(widths) if widths else 0
+    x0 = (W - w) / 2.0
+    extent = (placed[-1][1] + size) if placed else size
+    return (x0 + dx, offset + dy, x0 + w + dx, offset + extent + dy, size)
+
+
+def bbox(input_path, at, text, opts):
+    """Convenience wrapper: probe the video, then compute text_bbox."""
+    W, H, dur, _ = probe(input_path)
+    return text_bbox(text, W, H, opts, dur, at)
 
 
 # ------------------------------------------------------------- atempo --------
@@ -382,13 +578,13 @@ def render(input_path, output_path, text, opts, draft=False):
                 vf += ",scale=1280:1280:force_original_aspect_ratio=decrease:force_divisible_by=2"
             enc = ["-preset", "veryfast", "-crf", "23"]
         else:
-            # final export: high quality
-            enc = ["-preset", "slow", "-crf", "16"]
+            # final export: max quality (near-lossless, slower encode)
+            enc = ["-preset", "veryslow", "-crf", "14"]
         cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
                "-c:v", "libx264"] + enc + ["-pix_fmt", "yuv420p",
                "-movflags", "+faststart"] + (SDR_TAGS if hdr else [])
         if has_audio and abs(speed - 1.0) > 1e-3:
-            cmd += ["-filter:a", _atempo(speed), "-c:a", "aac"]
+            cmd += ["-filter:a", _atempo(speed), "-c:a", "aac", "-b:a", "192k"]
         elif has_audio:
             cmd += ["-c:a", "copy"]
         else:
@@ -407,6 +603,41 @@ def still(input_path, out_png, at, text, opts):
         vf = (TONEMAP + "," if is_hdr(input_path) else "") + chain
         _run(["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", input_path,
               "-vf", vf, "-frames:v", "1", "-update", "1", out_png])
+    return size
+
+
+def still_clean(input_path, out_png, at):
+    """One video frame with NO text (tone-mapped to SDR). The live editor uses
+    this as the background and overlays the text as a separate transparent PNG,
+    so dragging/resizing the text is pure client-side CSS (no ffmpeg round-trip)."""
+    W, H, dur, _ = probe(input_path)
+    at = max(0.0, min(at, max(0.0, dur - 0.05)))
+    vf = TONEMAP if is_hdr(input_path) else None
+    cmd = ["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", input_path]
+    if vf:
+        cmd += ["-vf", vf]
+    cmd += ["-frames:v", "1", "-update", "1", out_png]
+    _run(cmd)
+    return W, H
+
+
+def still_textlayer(input_path, out_png, at, text, opts, section=None):
+    """Render ONLY the text (fill + outline + shadow) on a fully transparent
+    canvas at the video's resolution. Offsets are forced to 0 (the client
+    applies the drag offset via CSS). `section` renders just one block section
+    so each section is its own independently movable overlay."""
+    W, H, dur, _ = probe(input_path)
+    with tempfile.TemporaryDirectory() as tmp:
+        chain, size = build_filter(text, W, H, opts, tmp, dur,
+                                   only_section=section, zero_offsets=True)
+        # format=rgba must be in the INPUT graph so the transparent color source
+        # keeps its alpha; putting it in -vf flattens the source to opaque black.
+        cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i",
+               f"color=c=#00000000:s={W}x{H},format=rgba"]
+        if chain:
+            cmd += ["-vf", chain]
+        cmd += ["-frames:v", "1", "-update", "1", "-pix_fmt", "rgba", out_png]
+        _run(cmd)
     return size
 
 
