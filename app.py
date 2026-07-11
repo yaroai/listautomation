@@ -271,22 +271,28 @@ PAGE = r"""<!doctype html>
   header h1 span{background:linear-gradient(90deg,var(--accent),var(--accent2));
        -webkit-background-clip:text;background-clip:text;color:transparent;}
   header .hint{color:var(--muted);font-size:12px;}
-  main{display:grid;grid-template-columns:minmax(300px,420px) 1fr;gap:20px;
-       padding:20px;max-width:1200px;margin:0 auto;align-items:start;}
+  main{display:grid;grid-template-columns:minmax(420px,1fr) minmax(320px,440px);gap:24px;
+       padding:20px;max-width:1240px;margin:0 auto;align-items:start;}
   @media (max-width:840px){main{grid-template-columns:1fr;}}
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;}
-  .left{position:sticky;top:20px;}
+  .left{position:sticky;top:16px;}
+  /* size the whole preview column by viewport height so a portrait clip is big.
+     44vh wide ⇒ ~78vh tall for 9:16 — the drag area fills the screen. */
+  #stagewrap{width:min(46vh,460px);margin:0 auto;}
   label{display:block;font-size:11px;color:var(--muted);margin:0 0 6px;
         text-transform:uppercase;letter-spacing:.5px;}
   #drop{border:2px dashed var(--line);border-radius:12px;padding:30px 14px;
         text-align:center;cursor:pointer;color:var(--muted);transition:.15s;}
   #drop.hover{border-color:var(--accent);color:var(--fg);background:#1b1b28;}
+  #drop.loaded{padding:8px 14px;font-size:12px;}   /* compact once a clip is in */
   #drop b{color:var(--fg);}
   /* the stage holds its size via aspect-ratio (set from the video on upload),
      so every layer can be absolutely stacked — never side-by-side, never a
      collapse when the still frame is hidden for the draft video. */
   .stage{position:relative;background:#000;border-radius:10px;overflow:hidden;
          aspect-ratio:9/16;min-height:120px;}
+  /* #stage fills the stagewrap width; its height comes from the video aspect */
+  #stage{width:100%;min-height:0;}
   .stage #frame,.stage #pvid{
     position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;}
   #layers,#boxes{position:absolute;inset:0;pointer-events:none;}
@@ -521,12 +527,11 @@ function wireSection(i){
     e.stopPropagation();
     dragging=true; box.classList.add("grabbing");
     try{box.setPointerCapture(e.pointerId);}catch(_){}
-    ds={x:e.clientX,y:e.clientY,dx:s.dx,dy:s.dy};
+    ds={x:e.clientX,y:e.clientY,dx:s.dx,dy:s.dy,sc:layerScale()||1};
   });
   box.addEventListener("pointermove",e=>{
     if(!dragging) return;
-    const sc=layerScale(); if(!sc) return;
-    s.dx=ds.dx+(e.clientX-ds.x)/sc; s.dy=ds.dy+(e.clientY-ds.y)/sc;
+    s.dx=ds.dx+(e.clientX-ds.x)/ds.sc; s.dy=ds.dy+(e.clientY-ds.y)/ds.sc;
     updatePosBadge(); applySection(i);
   });
   const endDrag=e=>{ if(!dragging)return; dragging=false; box.classList.remove("grabbing");
@@ -545,11 +550,11 @@ function wireSection(i){
                    h.classList.contains("bl")?"bl":"br";
       const [px,py]=cornerPoint(b,corner);
       rez={x:e.clientX,y:e.clientY,cx,cy,corner,dist0:Math.hypot(px-cx,py-cy)||1,
-        size0:b.size||s.size||28};
+        size0:b.size||s.size||28,sc:layerScale()||1};
     });
     h.addEventListener("pointermove",e=>{
       if(!rez) return;
-      const sc=layerScale(); if(!sc) return;
+      const sc=rez.sc;
       const [px0,py0]=cornerPoint(s.bbox,rez.corner);
       const curX=px0+(e.clientX-rez.x)/sc, curY=py0+(e.clientY-rez.y)/sc;
       const ratio=Math.max(0.2,Math.hypot(curX-rez.cx,curY-rez.cy)/rez.dist0);
@@ -685,7 +690,8 @@ function upload(f){
     updatePosBadge();
     scrub.max=Math.max(0.1,j.duration); scrub.value=Math.min(j.duration/3,j.duration);
     timebadge.textContent="preview @ "+(+scrub.value).toFixed(1)+"s";
-    $("#dropmsg").innerHTML="<b>"+j.name+"</b><br>click to change";
+    $("#dropmsg").innerHTML="<b>"+j.name+"</b> · click to change";
+    drop.classList.add("loaded");
     stagewrap.hidden=false; exportBtn.disabled=false; previewBtn.disabled=false;
     showStill(); doPreview();
   }).catch(e=>{err.textContent=String(e);pvstatus.textContent="";});
