@@ -88,7 +88,11 @@ def opts_from(d):
 # ------------------------------------------------------------------ routes ---
 @app.route("/")
 def index():
-    return Response(PAGE, mimetype="text/html")
+    # never cache the page — otherwise the browser serves a stale editor after
+    # every code change and edits look like they "didn't take".
+    return Response(PAGE, mimetype="text/html",
+                    headers={"Cache-Control": "no-store, no-cache, must-revalidate",
+                             "Pragma": "no-cache", "Expires": "0"})
 
 
 @app.route("/fonts")
@@ -265,26 +269,27 @@ PAGE = r"""<!doctype html>
   [hidden]{display:none!important;}
   body{margin:0;background:var(--bg);color:var(--fg);
        font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
-  header{padding:16px 24px;border-bottom:1px solid var(--line);display:flex;
+  header{padding:8px 24px;border-bottom:1px solid var(--line);display:flex;
          align-items:center;justify-content:space-between;}
   header h1{margin:0;font-size:17px;}
   header h1 span{background:linear-gradient(90deg,var(--accent),var(--accent2));
        -webkit-background-clip:text;background-clip:text;color:transparent;}
   header .hint{color:var(--muted);font-size:12px;}
-  main{display:grid;grid-template-columns:minmax(420px,1fr) minmax(320px,440px);gap:24px;
-       padding:20px;max-width:1240px;margin:0 auto;align-items:start;}
+  /* left column HUGS the video (auto), so there's no wasted space around it;
+     controls take the rest. The stage size itself is computed in JS from the
+     real video aspect + available width/height so it's as big as it can be. */
+  main{display:grid;grid-template-columns:auto minmax(340px,560px);gap:24px;
+       padding:16px 20px;max-width:1240px;margin:0 auto;align-items:start;
+       justify-content:center;}
   @media (max-width:840px){main{grid-template-columns:1fr;}}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;}
-  .left{position:sticky;top:16px;}
-  /* size the whole preview column by viewport height so a portrait clip is big.
-     44vh wide ⇒ ~78vh tall for 9:16 — the drag area fills the screen. */
-  #stagewrap{width:min(46vh,460px);margin:0 auto;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;}
+  .left{position:sticky;top:12px;min-width:280px;}
+  #stagewrap{margin:0 auto;}
   label{display:block;font-size:11px;color:var(--muted);margin:0 0 6px;
         text-transform:uppercase;letter-spacing:.5px;}
   #drop{border:2px dashed var(--line);border-radius:12px;padding:30px 14px;
         text-align:center;cursor:pointer;color:var(--muted);transition:.15s;}
   #drop.hover{border-color:var(--accent);color:var(--fg);background:#1b1b28;}
-  #drop.loaded{padding:8px 14px;font-size:12px;}   /* compact once a clip is in */
   #drop b{color:var(--fg);}
   /* the stage holds its size via aspect-ratio (set from the video on upload),
      so every layer can be absolutely stacked — never side-by-side, never a
@@ -351,12 +356,11 @@ PAGE = r"""<!doctype html>
 </style></head><body>
 <header>
   <h1><span>b-roll editor</span></h1>
-  <div class="hint">TikTok Sans · live preview · local</div>
+  <div class="hint" id="hint">TikTok Sans · live preview · local</div>
 </header>
 <main>
   <!-- LEFT: stage -->
   <section class="card left">
-    <label>b-roll</label>
     <div id="drop">
       <div id="dropmsg"><b>Drop a video</b><br>or click to choose</div>
       <input id="file" type="file" accept="video/*" hidden>
@@ -506,8 +510,19 @@ function applySection(i,ratio){
   s.box.style.transformOrigin="center";
   s.box.style.transform=t;
 }
+// Size the preview as large as physically fits. A portrait clip is bounded by
+// viewport HEIGHT; a landscape clip by the available WIDTH — take the smaller so
+// it's always maximal without overflowing. Column hugs it (no wasted space).
+function sizeStage(){
+  if(!state.vw||!state.vh) return;
+  const ar=state.vw/state.vh;                          // width / height
+  const availW=Math.min(window.innerWidth-400, 820);   // leave room for controls
+  const availH=window.innerHeight-96;                  // header + compact upload bar
+  let w=Math.min(availW, availH*ar, 640);              // fit both; sane upper cap
+  stagewrap.style.width=Math.max(160,Math.round(w))+"px";
+}
 function refreshOverlay(){ for(let i=0;i<state.count;i++){ positionBox(i); applySection(i); } }
-window.addEventListener("resize",refreshOverlay);
+window.addEventListener("resize",()=>{ sizeStage(); refreshOverlay(); });
 frame.addEventListener("load",refreshOverlay);
 
 function updatePosBadge(){
@@ -687,11 +702,16 @@ function upload(f){
     state.frameAt=null; state.count=0; state.secs=[];
     layersEl.innerHTML=""; boxesEl.innerHTML="";
     if(j.width&&j.height) stage.style.aspectRatio=j.width+"/"+j.height;
+    sizeStage();
     updatePosBadge();
     scrub.max=Math.max(0.1,j.duration); scrub.value=Math.min(j.duration/3,j.duration);
     timebadge.textContent="preview @ "+(+scrub.value).toFixed(1)+"s";
-    $("#dropmsg").innerHTML="<b>"+j.name+"</b> · click to change";
-    drop.classList.add("loaded");
+    // hide the big dropzone; expose "change clip" compactly in the header so
+    // the video preview gets the full column height.
+    drop.style.display="none";
+    const hint=$("#hint");
+    hint.innerHTML='▸ <b>'+j.name+'</b> · <span style="color:var(--accent)">change clip</span>';
+    hint.style.cursor="pointer"; hint.onclick=()=>file.click();
     stagewrap.hidden=false; exportBtn.disabled=false; previewBtn.disabled=false;
     showStill(); doPreview();
   }).catch(e=>{err.textContent=String(e);pvstatus.textContent="";});
