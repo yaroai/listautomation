@@ -3,6 +3,14 @@ output/
 uploads/
 assets/
 
+# source footage dropped in the project root. These are GBs each and blow past
+# GitHub's 100 MB per-file limit — they are never part of the repo.
+*.mov
+*.MOV
+*.mp4
+*.MP4
+*.m4v
+
 # python
 __pycache__/
 *.pyc

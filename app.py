@@ -29,11 +29,21 @@ for d in (UPLOADS, OUTPUT, PREVIEW):
     os.makedirs(d, exist_ok=True)
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024
+# Straight-from-the-phone 4K HDR originals (via Drive, not an Instagram
+# re-download) run 1-2 GB for a few minutes of footage. The old 500 MB cap
+# rejected them with a bare 413 before a frame was ever decoded.
+app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024
 
 SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 VIDEOS = {}          # id -> absolute path
 _counter = [0]
+
+
+@app.errorhandler(413)
+def too_large(_):
+    """Flask aborts oversize uploads with an HTML 413; the uploader reads JSON."""
+    gb = app.config["MAX_CONTENT_LENGTH"] / (1024 ** 3)
+    return jsonify(error=f"Video is too large — the limit is {gb:.0f} GB."), 413
 
 
 def load_collection():

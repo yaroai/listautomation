@@ -121,18 +121,78 @@ def wrap_px(text, path, size, max_w):
 
 
 # ---------------------------------------------------------------- ffprobe ----
-def probe(video):
+# The working canvas. Layout, drag offsets, bboxes and the browser editor all
+# use this one coordinate space, and every render normalises the source into it
+# first — so a 4K source costs the same to edit and export as a 1080p one.
+# Vertical platforms top out at 1080x1920 anyway.
+MAX_DIM = 1920
+
+
+def _even(n):
+    return max(2, int(round(n)) & ~1)
+
+
+def work_dims(w, h):
+    """Cap the long side at MAX_DIM, preserving aspect. Dims stay even (x264)."""
+    m = max(w, h)
+    if m <= MAX_DIM:
+        return _even(w), _even(h)
+    s = MAX_DIM / float(m)
+    return _even(w * s), _even(h * s)
+
+
+def _raw_probe(video):
+    """(width, height, rotation_deg, duration, has_audio) exactly as stored."""
     def q(args):
         return subprocess.run(["ffprobe", "-v", "error"] + args + [video],
                               capture_output=True, text=True).stdout.strip()
     wh = q(["-select_streams", "v:0", "-show_entries", "stream=width,height",
             "-of", "csv=p=0:s=x"]).split("x")
     w, h = int(wh[0]), int(wh[1])
+    rot = q(["-select_streams", "v:0", "-show_entries",
+             "stream_side_data=rotation:stream_tags=rotate",
+             "-of", "default=noprint_wrappers=1:nokey=1"])
     dur = q(["-show_entries", "format=duration", "-of",
              "default=noprint_wrappers=1:nokey=1"])
     has_audio = bool(q(["-select_streams", "a:0", "-show_entries",
                         "stream=index", "-of", "csv=p=0"]))
-    return w, h, float(dur) if dur else 0.0, has_audio
+    deg = 0
+    for tok in rot.split():          # side_data rotation, else the legacy tag
+        try:
+            deg = int(round(float(tok)))
+            break
+        except ValueError:
+            pass
+    return w, h, deg, float(dur) if dur else 0.0, has_audio
+
+
+def _oriented(video):
+    """Stored size with the display matrix applied — i.e. what the filter graph
+    actually receives. A phone shoots portrait but stores the frame landscape
+    with a 90-degree rotation matrix, and ffmpeg auto-rotates on decode: a
+    3840x2160 iPhone file reaches drawtext as 2160x3840. Trusting the stored
+    size here is what puts text in the wrong place on those videos."""
+    w, h, deg, dur, has_audio = _raw_probe(video)
+    if deg % 180:                    # 90 / -90 / 270 -> ffmpeg swaps the axes
+        w, h = h, w
+    return w, h, dur, has_audio
+
+
+def probe(video):
+    """(W, H, duration, has_audio) on the working canvas."""
+    w, h, dur, has_audio = _oriented(video)
+    W, H = work_dims(w, h)
+    return W, H, dur, has_audio
+
+
+def source_chain(video):
+    """Filters that turn the decoded source into the working canvas: HDR->SDR
+    tone-map plus the downscale. Everything after this draws in working px."""
+    w, h, _, _ = _oriented(video)
+    W, H = work_dims(w, h)
+    if is_hdr(video):
+        return tonemap_chain(W, H)
+    return f"scale={W}:{H}:flags=lanczos" if (W, H) != (w, h) else ""
 
 
 _hdr_cache = {}
@@ -158,7 +218,7 @@ def is_hdr(video):
 # detail — so we prefer it and fall back to a CPU zscale chain only when a GPU
 # isn't available (e.g. a headless container). A small eq lift compensates for
 # the slight flatness any HDR->SDR conversion leaves behind.
-TONEMAP_GPU = ("libplacebo=tonemapping=bt.2390:colorspace=bt709:"
+TONEMAP_GPU = ("libplacebo={geom}tonemapping=bt.2390:colorspace=bt709:"
                "color_primaries=bt709:color_trc=bt709:range=tv:format=yuv420p,"
                "eq=saturation=1.12:brightness=0.02")
 TONEMAP_CPU = ("zscale=t=linear:npl=203,format=gbrpf32le,zscale=p=bt709,"
@@ -171,10 +231,13 @@ SDR_TAGS = ["-colorspace", "bt709", "-color_primaries", "bt709",
 _placebo_ok = None
 
 
-def tonemap_chain():
+def tonemap_chain(w=None, h=None):
     """Return the HDR->SDR filter string, preferring libplacebo when the build
     can actually initialise it (needs a GPU/Vulkan device); else the CPU chain.
-    Result is probed once and cached."""
+    Result is probed once and cached. When w/h are given the downscale to the
+    working canvas is folded in: libplacebo resamples in linear light in the
+    same shader pass, and the CPU chain scales up front so the expensive
+    zscale/tonemap stage runs on 1080p instead of 4K."""
     global _placebo_ok
     if _placebo_ok is None:
         try:
@@ -186,7 +249,9 @@ def tonemap_chain():
             _placebo_ok = (r.returncode == 0)
         except Exception:
             _placebo_ok = False
-    return TONEMAP_GPU if _placebo_ok else TONEMAP_CPU
+    if _placebo_ok:
+        return TONEMAP_GPU.format(geom=(f"w={w}:h={h}:" if w else ""))
+    return (f"scale={w}:{h}:flags=lanczos," if w else "") + TONEMAP_CPU
 
 
 # --------------------------------------------------------- text parsing ------
@@ -598,17 +663,22 @@ def render(input_path, output_path, text, opts, draft=False):
     hdr = is_hdr(input_path)
     with tempfile.TemporaryDirectory() as tmp:
         chain, size = build_filter(text, W, H, opts, tmp, dur)
-        vf = (tonemap_chain() + "," if hdr else "") \
-            + (f"setpts=PTS/{speed}," if abs(speed - 1.0) > 1e-3 else "") + chain
+        vf = ",".join(p for p in [
+            source_chain(input_path),
+            (f"setpts=PTS/{speed}" if abs(speed - 1.0) > 1e-3 else ""),
+            chain,
+        ] if p)
         if draft:
             # only downscale very large sources; keep it sharp for watching
             if max(W, H) > 1280:
                 vf += ",scale=1280:1280:force_original_aspect_ratio=decrease:force_divisible_by=2"
             enc = ["-preset", "veryfast", "-crf", "23"]
         else:
-            # final export: max quality (near-lossless, slower encode)
-            enc = ["-preset", "veryslow", "-crf", "14"]
-        cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+            # Final export. crf 18 at 1080p is already well above what IG/TikTok
+            # keep — they recompress to ~8-10 Mbps on upload — so going
+            # near-lossless just spent encode time on bits nobody ever sees.
+            enc = ["-preset", "slow", "-crf", "18"]
+        cmd = ["ffmpeg", "-y", "-i", input_path] + (["-vf", vf] if vf else []) + [
                "-c:v", "libx264"] + enc + ["-pix_fmt", "yuv420p",
                "-movflags", "+faststart"] + (SDR_TAGS if hdr else [])
         if has_audio and abs(speed - 1.0) > 1e-3:
@@ -628,7 +698,7 @@ def still(input_path, out_png, at, text, opts):
     at = max(0.0, min(at, max(0.0, dur - 0.05)))
     with tempfile.TemporaryDirectory() as tmp:
         chain, size = build_filter(text, W, H, opts, tmp, dur)
-        vf = (tonemap_chain() + "," if is_hdr(input_path) else "") + chain
+        vf = ",".join(p for p in [source_chain(input_path), chain] if p)
         _run(["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", input_path,
               "-vf", vf, "-frames:v", "1", "-update", "1", out_png])
     return size
@@ -640,7 +710,7 @@ def still_clean(input_path, out_png, at):
     so dragging/resizing the text is pure client-side CSS (no ffmpeg round-trip)."""
     W, H, dur, _ = probe(input_path)
     at = max(0.0, min(at, max(0.0, dur - 0.05)))
-    vf = tonemap_chain() if is_hdr(input_path) else None
+    vf = source_chain(input_path)
     cmd = ["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", input_path]
     if vf:
         cmd += ["-vf", vf]

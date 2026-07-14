@@ -18,5 +18,7 @@ ENV PORT=8000
 EXPOSE 8000
 
 # gunicorn serves the Flask app. One worker keeps the in-memory upload map + a
-# long timeout so full-video renders don't get cut off.
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT} --workers 1 --threads 4 --timeout 300 app:app"]
+# long timeout so full-video renders don't get cut off. A multi-minute 4K HDR
+# source takes several minutes to tone-map and encode, and the old 300s timeout
+# killed the worker mid-render — which looked like a hang, not an error.
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT} --workers 1 --threads 4 --timeout 3600 app:app"]
