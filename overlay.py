@@ -27,8 +27,27 @@ from fontTools.ttLib import TTFont as _FTFont
 HERE = os.path.dirname(os.path.abspath(__file__))
 FONTS_DIR = os.path.join(HERE, "fonts")
 
+# Every file here is SIL Open Font License — safe to ship in a public repo and
+# to burn into content posted commercially.
+#
+# TikTok Sans is TikTok's real brand font; they released it under the OFL, so
+# these are the genuine article. Instagram Sans is NOT: Meta commissioned it and
+# licenses it to nobody, so there is no lawful copy to ship. The "(IG look)"
+# entries are the closest open-licensed geometric sans stand-ins for the Reels
+# caption look — Plus Jakarta is the nearest match.
+#
+# All weights are static instances. drawtext goes through libfreetype, which
+# ignores variation axes and renders a variable font at its default weight — so
+# a variable file would silently come out Regular no matter which weight is picked.
 FONTS = {
-    "TikTok Sans": "TikTokSans-Bold.ttf",
+    "TikTok Sans": "TikTokSans-Bold.ttf",              # default; the caption weight
+    "TikTok Sans SemiBold": "TikTokSans-SemiBold.ttf",
+    "TikTok Sans Medium": "TikTokSans-Medium.ttf",
+    "TikTok Sans Regular": "TikTokSans-Regular.ttf",
+    "TikTok Sans Light": "TikTokSans.ttf",
+    "Plus Jakarta Sans (IG look)": "PlusJakartaSans-ExtraBold.ttf",
+    "Figtree (IG look)": "Figtree-ExtraBold.ttf",
+    "Montserrat (IG look)": "Montserrat-Bold.ttf",
     "Poppins": "Poppins-Bold.ttf",
     "Bebas Neue": "BebasNeue-Regular.ttf",
     "Anton": "Anton-Regular.ttf",
