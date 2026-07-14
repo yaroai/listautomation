@@ -331,6 +331,27 @@ def sections():
     return jsonify(count=len(boxes), sections=boxes)
 
 
+_renders = [0]
+
+
+def _render_out(prefix):
+    """A fresh filename for every render.
+
+    Both renders used to overwrite one fixed name, so re-exporting after an
+    edit returned the same URL — and the browser served the cached first cut.
+    A unique URL per render makes staleness impossible. Earlier renders of the
+    same clip are pruned so the host's ephemeral disk doesn't fill up."""
+    for f in os.listdir(OUTPUT):
+        if f.startswith(prefix):
+            try:
+                os.remove(os.path.join(OUTPUT, f))
+            except OSError:
+                pass                      # still being served; it'll go next time
+    _renders[0] += 1
+    name = f"{prefix}{_renders[0]}.mp4"
+    return name, os.path.join(OUTPUT, name)
+
+
 @app.route("/preview_video", methods=["POST"])
 def preview_video():
     """Fast draft render so the user can watch it (with speed) before exporting."""
@@ -340,8 +361,7 @@ def preview_video():
         return jsonify(error="Upload a video first."), 400
     if not d.get("text", "").strip():
         return jsonify(error="No text."), 400
-    out_name = d["id"] + "_preview.mp4"
-    out_path = os.path.join(OUTPUT, out_name)
+    out_name, out_path = _render_out(f"{d['id']}_preview-")
     try:
         overlay.render(path, out_path, d["text"], opts_from(d), draft=True)
     except Exception as e:
@@ -360,14 +380,15 @@ def export():
     if not text.strip():
         return jsonify(error="No text."), 400
     base = os.path.splitext(os.path.basename(path))[0]
-    out_name = base + "_captioned.mp4"
-    out_path = os.path.join(OUTPUT, out_name)
+    out_name, out_path = _render_out(f"{base}_captioned-")
     try:
         overlay.render(path, out_path, text, opts_from(d))
     except Exception as e:
         traceback.print_exc()
         return jsonify(error=str(e)[-1200:]), 500
-    return jsonify(url=f"/output/{out_name}")
+    # `name` is what the browser saves it as — the URL is uniquified per render,
+    # but the user should still get a clean filename, not "..._captioned-7.mp4".
+    return jsonify(url=f"/output/{out_name}", name=f"{base}_captioned.mp4")
 
 
 @app.route("/output/<path:fn>")
@@ -918,8 +939,14 @@ exportBtn.onclick=async()=>{
     const r=await fetch("/export",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(opts())});
     const j=await r.json();
     if(j.error){ err.textContent=j.error; }
-    else{ const bust=j.url+"?t="+Date.now(); result.src=bust; dl.href=j.url; resultwrap.hidden=false;
-          resultwrap.scrollIntoView({behavior:"smooth"}); }
+    else{
+      // j.url is unique per render, so the download link can point straight at
+      // it — it used to reuse one URL and hand back the cached first export.
+      result.src=j.url; result.load();
+      dl.href=j.url; dl.download=j.name||"";
+      resultwrap.hidden=false;
+      resultwrap.scrollIntoView({behavior:"smooth"});
+    }
   }catch(e){ err.textContent=String(e); }
   exportBtn.disabled=false; exportBtn.textContent=orig;
 };
@@ -936,7 +963,7 @@ previewBtn.onclick=async()=>{
     else{
       frame.hidden=true; layersEl.style.display="none"; boxesEl.style.display="none";
       pvid.hidden=false;
-      pvid.src=j.url+"?t="+Date.now();
+      pvid.src=j.url; pvid.load();      // url is unique per render; no bust needed
       pvid.play().catch(()=>{});
       timebadge.textContent="▶ live preview (draft quality, looping)";
     }
