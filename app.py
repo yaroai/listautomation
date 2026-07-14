@@ -13,8 +13,12 @@ import io
 import os
 import re
 import tempfile
+import threading
 import traceback
+import urllib.parse
+import uuid
 
+import requests
 from flask import Flask, request, jsonify, send_from_directory, Response
 
 import overlay
@@ -37,6 +41,7 @@ app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024
 SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 VIDEOS = {}          # id -> absolute path
 _counter = [0]
+IMPORTS = {}         # job id -> {state, got, total, error, result}
 
 
 @app.errorhandler(413)
@@ -44,6 +49,109 @@ def too_large(_):
     """Flask aborts oversize uploads with an HTML 413; the uploader reads JSON."""
     gb = app.config["MAX_CONTENT_LENGTH"] / (1024 ** 3)
     return jsonify(error=f"Video is too large — the limit is {gb:.0f} GB."), 413
+
+
+# ----------------------------------------------------------- drive import ----
+# Pushing a multi-GB 4K original from the browser means it crosses the user's
+# upstream link and the host's proxy, which drops the connection long before
+# Flask sees a byte (Railway answers a 245 MB POST with a 502 "upstream error").
+# Fetching it server-side instead is a datacenter-to-datacenter copy: no browser
+# upload, no request-body limit, no edge timeout. The download outlives any
+# single request, so it runs on a thread and the page polls for progress.
+
+DRIVE_ID = re.compile(r"/file/d/([A-Za-z0-9_-]{10,})|[?&]id=([A-Za-z0-9_-]{10,})")
+# A server-side fetcher pointed at a user-supplied URL is an SSRF hole: it runs
+# inside the private network. Only Google's own Drive hosts are ever fetched.
+DRIVE_HOSTS = {"drive.google.com", "docs.google.com", "drive.usercontent.google.com"}
+VIDEO_EXT = {".mov", ".mp4", ".m4v", ".avi", ".mkv", ".webm"}
+
+
+def drive_file_id(link):
+    """Pull the file id out of any Drive share URL, or accept a bare id."""
+    link = (link or "").strip()
+    if not link:
+        return None
+    if "/" not in link and "?" not in link:
+        return link if re.fullmatch(r"[A-Za-z0-9_-]{10,}", link) else None
+    host = (urllib.parse.urlparse(link).hostname or "").lower()
+    if host not in DRIVE_HOSTS:
+        return None
+    m = DRIVE_ID.search(link)
+    return (m.group(1) or m.group(2)) if m else None
+
+
+def _fetch_drive(job, fid):
+    """Stream a Drive file to disk, then probe it. Runs on a worker thread."""
+    try:
+        s = requests.Session()
+        # confirm=t skips the >100MB "can't scan for viruses" interstitial that
+        # would otherwise hand us an HTML page instead of the video.
+        r = s.get("https://drive.usercontent.google.com/download",
+                  params={"id": fid, "export": "download", "confirm": "t"},
+                  stream=True, timeout=60)
+        r.raise_for_status()
+
+        ctype = (r.headers.get("Content-Type") or "").lower()
+        if "text/html" in ctype:
+            raise RuntimeError(
+                "Drive returned a web page, not a file — the link is most likely "
+                "private. Set it to 'Anyone with the link' and try again.")
+
+        # Prefer the real filename from Content-Disposition; fall back to the id.
+        cd = r.headers.get("Content-Disposition") or ""
+        m = re.search(r"filename\*?=(?:UTF-8'')?\"?([^\";]+)", cd)
+        name = urllib.parse.unquote(m.group(1)) if m else f"{fid}.mp4"
+        stem, ext = safe_name(name)
+        if ext.lower() not in VIDEO_EXT:
+            raise RuntimeError(f"'{name}' is not a video file.")
+
+        job["total"] = int(r.headers.get("Content-Length") or 0)
+        _counter[0] += 1
+        vid = f"{stem}-{_counter[0]}"
+        path = os.path.join(UPLOADS, vid + ext)
+
+        with open(path, "wb") as fh:
+            for chunk in r.iter_content(1 << 20):     # 1 MB
+                if not chunk:
+                    continue
+                fh.write(chunk)
+                job["got"] += len(chunk)
+
+        w, h, dur, _ = overlay.probe(path)
+        VIDEOS[vid] = path
+        job["result"] = {"id": vid, "width": w, "height": h,
+                         "duration": dur, "name": name}
+        job["state"] = "done"
+    except Exception as e:
+        traceback.print_exc()
+        job["error"] = str(e)[:300]
+        job["state"] = "error"
+
+
+@app.route("/import", methods=["POST"])
+def start_import():
+    d = request.get_json(force=True, silent=True) or {}
+    fid = drive_file_id(d.get("url"))
+    if not fid:
+        return jsonify(error="Not a Google Drive link. Paste the share URL "
+                             "(drive.google.com/file/d/…)."), 400
+    jid = uuid.uuid4().hex[:12]
+    IMPORTS[jid] = job = {"state": "downloading", "got": 0, "total": 0,
+                          "error": None, "result": None}
+    threading.Thread(target=_fetch_drive, args=(job, fid), daemon=True).start()
+    return jsonify(job=jid)
+
+
+@app.route("/import/<jid>")
+def import_status(jid):
+    job = IMPORTS.get(jid)
+    if not job:
+        return jsonify(error="Unknown import job."), 404
+    if job["state"] == "error":
+        return jsonify(error=job["error"]), 400
+    if job["state"] == "done":
+        return jsonify(done=True, **job["result"])
+    return jsonify(done=False, got=job["got"], total=job["total"])
 
 
 def load_collection():
@@ -301,6 +409,16 @@ PAGE = r"""<!doctype html>
         text-align:center;cursor:pointer;color:var(--muted);transition:.15s;}
   #drop.hover{border-color:var(--accent);color:var(--fg);background:#1b1b28;}
   #drop b{color:var(--fg);}
+  #drivebox{margin-top:10px;}
+  .drivelbl{font-size:11px;color:var(--muted);margin-bottom:6px;}
+  .drivelbl span{opacity:.7;}
+  .driverow{display:flex;gap:6px;}
+  #driveurl{flex:1;min-width:0;background:var(--field);color:var(--fg);
+    border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:12px;
+    font-family:ui-monospace,monospace;}
+  #drivego{margin-top:0;width:auto;flex:0 0 auto;padding:8px 16px;font-size:13px;}
+  #drivego:disabled{opacity:.5;cursor:default;}
+  .drivenote{font-size:11px;color:var(--muted);margin-top:6px;}
   /* the stage holds its size via aspect-ratio (set from the video on upload),
      so every layer can be absolutely stacked — never side-by-side, never a
      collapse when the still frame is hidden for the draft video. */
@@ -374,6 +492,17 @@ PAGE = r"""<!doctype html>
     <div id="drop">
       <div id="dropmsg"><b>Drop a video</b><br>or click to choose</div>
       <input id="file" type="file" accept="video/*" hidden>
+    </div>
+    <!-- Big 4K originals can't be pushed through the browser (the host's proxy
+         502s partway up). Pulling them straight from Drive skips that entirely. -->
+    <div id="drivebox">
+      <div class="drivelbl">…or paste a Google&nbsp;Drive link <span>(best for large 4K files)</span></div>
+      <div class="driverow">
+        <input id="driveurl" type="text" spellcheck="false"
+               placeholder="https://drive.google.com/file/d/…/view">
+        <button id="drivego" type="button">Import</button>
+      </div>
+      <div class="drivenote" id="drivenote">Share it as “Anyone with the link”.</div>
     </div>
     <div id="stagewrap" hidden>
       <div class="stage" id="stage">
@@ -719,31 +848,66 @@ function upload(f){
                       +`${body}. (${mb} MB file; this is the host/proxy rejecting or `
                       +`dropping the request, not the app.)`);
     }
-  }).then(j=>{
-    if(j.error){ err.textContent=j.error; pvstatus.textContent=""; return; }
-    state.id=j.id; state.duration=j.duration; state.vw=j.width; state.vh=j.height;
-    state.frameAt=null; state.count=0; state.secs=[];
-    layersEl.innerHTML=""; boxesEl.innerHTML="";
-    if(j.width&&j.height) stage.style.aspectRatio=j.width+"/"+j.height;
-    sizeStage();
-    updatePosBadge();
-    scrub.max=Math.max(0.1,j.duration); scrub.value=Math.min(j.duration/3,j.duration);
-    timebadge.textContent="preview @ "+(+scrub.value).toFixed(1)+"s";
-    // hide the big dropzone; expose "change clip" compactly in the header so
-    // the video preview gets the full column height.
-    drop.style.display="none";
-    const hint=$("#hint");
-    hint.innerHTML='▸ <b>'+j.name+'</b> · <span style="color:var(--accent)">change clip</span>';
-    hint.style.cursor="pointer"; hint.onclick=()=>file.click();
-    stagewrap.hidden=false; exportBtn.disabled=false; previewBtn.disabled=false;
-    showStill(); doPreview();
-  }).catch(e=>{err.textContent=String(e);pvstatus.textContent="";});
+  }).then(j=>{ loaded(j); }).catch(e=>{err.textContent=String(e);pvstatus.textContent="";});
+}
+
+// a video is ready server-side (however it got there — upload or Drive import)
+function loaded(j){
+  if(j.error){ err.textContent=j.error; pvstatus.textContent=""; return; }
+  state.id=j.id; state.duration=j.duration; state.vw=j.width; state.vh=j.height;
+  state.frameAt=null; state.count=0; state.secs=[];
+  layersEl.innerHTML=""; boxesEl.innerHTML="";
+  if(j.width&&j.height) stage.style.aspectRatio=j.width+"/"+j.height;
+  sizeStage();
+  updatePosBadge();
+  scrub.max=Math.max(0.1,j.duration); scrub.value=Math.min(j.duration/3,j.duration);
+  timebadge.textContent="preview @ "+(+scrub.value).toFixed(1)+"s";
+  // hide the big dropzone; expose "change clip" compactly in the header so
+  // the video preview gets the full column height.
+  drop.style.display="none";
+  const db=$("#drivebox"); if(db) db.style.display="none";
+  const hint=$("#hint");
+  hint.innerHTML='▸ <b>'+j.name+'</b> · <span style="color:var(--accent)">change clip</span>';
+  hint.style.cursor="pointer"; hint.onclick=()=>file.click();
+  stagewrap.hidden=false; exportBtn.disabled=false; previewBtn.disabled=false;
+  showStill(); doPreview();
 }
 drop.onclick=()=>file.click();
 file.onchange=e=>upload(e.target.files[0]);
 ["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("hover");}));
 ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("hover");}));
 drop.addEventListener("drop",e=>upload(e.dataTransfer.files[0]));
+
+// Google Drive import — the server pulls the file, so nothing crosses the
+// browser or the host proxy. Long downloads outlive a request, hence polling.
+const driveurl=$("#driveurl"), drivego=$("#drivego"), drivenote=$("#drivenote");
+function driveImport(){
+  const url=driveurl.value.trim();
+  if(!url) return;
+  err.textContent=""; drivego.disabled=true;
+  drivenote.textContent="starting…"; pvstatus.textContent="importing…";
+  const fail=m=>{ err.textContent=m; drivego.disabled=false;
+                  drivenote.textContent="Share it as “Anyone with the link”.";
+                  pvstatus.textContent=""; };
+  fetch("/import",{method:"POST",headers:{"Content-Type":"application/json"},
+                   body:JSON.stringify({url})})
+    .then(r=>r.json()).then(j=>{
+      if(j.error) return fail(j.error);
+      const poll=()=>fetch("/import/"+j.job).then(r=>r.json()).then(s=>{
+        if(s.error) return fail(s.error);
+        if(s.done){ drivego.disabled=false; drivenote.textContent="imported ✓";
+                    loaded(s); return; }
+        const mb=(s.got/1048576).toFixed(0);
+        const tot=s.total?(s.total/1048576).toFixed(0):null;
+        drivenote.textContent=tot?`downloading ${mb} / ${tot} MB`
+                                 :`downloading ${mb} MB`;
+        setTimeout(poll,1000);
+      }).catch(e=>fail(String(e)));
+      poll();
+    }).catch(e=>fail(String(e)));
+}
+drivego.onclick=driveImport;
+driveurl.addEventListener("keydown",e=>{ if(e.key==="Enter") driveImport(); });
 
 // export
 exportBtn.onclick=async()=>{
