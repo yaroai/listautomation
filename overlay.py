@@ -54,8 +54,38 @@ FONTS = {
 }
 DEFAULT_FONT_FILE = "TikTokSans-Bold.ttf"
 
+# Split-screen layout: a clip from the bank on top, a black band holding the
+# text, the user's own clip underneath. Fractions of the working canvas height.
+SPLIT_PANEL = 0.45          # each video panel
+SPLIT_BAND = 0.10           # the black text band between them
+# The split output is always a standard vertical frame. Unlike the single
+# layout — which draws on the user's own frame and so inherits its size — split
+# composes a NEW canvas out of two unrelated clips, and must not inherit the
+# b-roll's dimensions: a 200x352 source would otherwise yield a 200x352 export.
+SPLIT_W, SPLIT_H = 1080, 1920
+
+
+def canvas(video, opts=None):
+    """The frame a render draws into: the source's own for the single layout,
+    a fixed 9:16 frame for split."""
+    if (opts or {}).get("layout") == "split":
+        return SPLIT_W, SPLIT_H
+    W, H, _, _ = probe(video)
+    return W, H
+
+
+def split_geom(H):
+    """(panel_h, band_y0, band_y1) in working px. Both panels are the same
+    height and any rounding slack lands in the band, so the two clips always
+    match exactly — a 1px difference between them is very visible."""
+    panel = _even(H * SPLIT_PANEL)
+    return panel, panel, H - panel
+
+
 DEFAULTS = {
     "mode": "block",
+    "layout": "single",  # "single" = text over one clip; "split" = stacked pair
+    "bank": None,        # split only: filename of the top clip, from bank/
     "font": "TikTok Sans",
     "size": None,        # None = auto (auto-fit in block mode)
     "position": None,    # None = center for block, bottom for captions
@@ -320,6 +350,27 @@ def _color(c):
     return ("0x" + c[1:]) if c.startswith("#") else c
 
 
+def _text_budget(o, H):
+    """How much vertical room the text may use. In split mode it has to live
+    inside the black band; otherwise it's the whole frame."""
+    if o.get("layout") == "split":
+        _, y0, y1 = split_geom(H)
+        return (y1 - y0) * 0.90, y0, y1
+    return H * 0.92, 0.0, float(H)
+
+
+def _text_offset(o, H, extent, pos):
+    """Pixel y of the top of the text block, given its measured height."""
+    if o.get("layout") == "split":
+        _, y0, y1 = split_geom(H)
+        return y0 + ((y1 - y0) - extent) / 2.0   # always centred in the band
+    if pos == "top":
+        return H * 0.10
+    if pos == "bottom":
+        return H * 0.88 - extent
+    return (H - extent) / 2.0
+
+
 def _line_drawtext(text, font, size, o, y_val, tf_path, enable=None,
                    dx=0, dy=0, border=None):
     """One single-line drawtext, horizontally centered, at an exact y pixel.
@@ -393,7 +444,7 @@ def _block_layout(text, W, H, o):
     fgap = float(o["footer_gap"])
     autofit = o["size"] is None
     base = int(o["size"] or max(22, round(W * 0.058)))
-    budget = H * 0.92
+    budget, _, _ = _text_budget(o, H)
 
     def layout(size):
         border = (o["border"] if o["border"] is not None else max(1, round(size * 0.06)))
@@ -418,12 +469,7 @@ def _block_layout(text, W, H, o):
         size -= 1
         placed, extent, border = layout(size)
 
-    if pos == "top":
-        offset = H * 0.10
-    elif pos == "bottom":
-        offset = H * 0.88 - extent
-    else:
-        offset = (H - extent) / 2.0
+    offset = _text_offset(o, H, extent, pos)
     return placed, size, border, offset, font
 
 
@@ -442,7 +488,7 @@ def block_sections(text, W, H, o):
     nsec = len(secs_src)
     autofit = o["size"] is None
     base = int(o["size"] or max(22, round(W * 0.058)))
-    budget = H * 0.92
+    budget, _, _ = _text_budget(o, H)
 
     def layout(size):
         border = (o["border"] if o["border"] is not None else max(1, round(size * 0.06)))
@@ -466,12 +512,7 @@ def block_sections(text, W, H, o):
         size -= 1
         spans, extent = layout(size)
 
-    if pos == "top":
-        offset = H * 0.10
-    elif pos == "bottom":
-        offset = H * 0.88 - extent
-    else:
-        offset = (H - extent) / 2.0
+    offset = _text_offset(o, H, extent, pos)
 
     sections = []
     for (top, bottom), src in zip(spans, secs_src):
@@ -591,7 +632,8 @@ def build_filter(text, W, H, opts, tmp, duration, only_section=None, zero_offset
 def section_bboxes(input_path, text, opts):
     """Per-section base bounding boxes (dx=dy=0, at each section's current
     size) for drawing the editor's selection boxes + resize handles."""
-    W, H, dur, _ = probe(input_path)
+    _, _, dur, _ = probe(input_path)
+    W, H = canvas(input_path, opts)
     o = dict(DEFAULTS)
     o.update({k: v for k, v in opts.items() if v is not None})
     if o["mode"] != "block":
@@ -650,7 +692,8 @@ def text_bbox(text, W, H, opts, duration, at=0.0):
 
 def bbox(input_path, at, text, opts):
     """Convenience wrapper: probe the video, then compute text_bbox."""
-    W, H, dur, _ = probe(input_path)
+    _, _, dur, _ = probe(input_path)
+    W, H = canvas(input_path, opts)
     return text_bbox(text, W, H, opts, dur, at)
 
 
@@ -675,37 +718,140 @@ def _run(cmd):
     return r
 
 
+BANK_DIR = os.path.join(HERE, "bank")
+
+
+def bank_clips():
+    """The overlay clips available for the top panel, sorted by name."""
+    if not os.path.isdir(BANK_DIR):
+        return []
+    return sorted(f for f in os.listdir(BANK_DIR)
+                  if os.path.splitext(f)[1].lower() in
+                  (".mp4", ".mov", ".m4v", ".webm", ".mkv"))
+
+
+def bank_path(name):
+    """Resolve a bank clip by name. Rejects anything outside bank/ — this comes
+    straight off a request, so '../../etc/passwd' must not resolve."""
+    if not name or name not in bank_clips():
+        return None
+    return os.path.join(BANK_DIR, name)
+
+
+def safe_stem(name):
+    return re.sub(r"[^A-Za-z0-9_-]+", "_", os.path.splitext(name)[0])
+
+
+def bank_thumb(src, out_jpg, at=1.0):
+    """A small poster frame for the bank picker."""
+    W, H, dur, _ = probe(src)
+    at = min(at, max(0.0, dur - 0.05))
+    _run(["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", src,
+          "-vf", "scale=160:-2", "-frames:v", "1", "-update", "1", out_jpg])
+
+
+def _split_graph(input_path, W, H, speed=1.0):
+    """Compose the split canvas from two inputs and return (graph, out_label).
+
+    Input 0 is the user's clip, input 1 the bank clip (fed with -stream_loop so
+    a short clip tiles under a long one). Each is scaled to cover its panel and
+    centre-cropped, never letterboxed. Padding the bottom panel up to the full
+    canvas is what creates the black band — no separate colour source needed.
+
+    shortest=1 is load-bearing: overlay defaults to running until its LONGEST
+    input ends, and -stream_loop -1 makes the bank clip infinite, so without it
+    the render never terminates."""
+    panel, _, _ = split_geom(H)
+    fill = (f"scale={W}:{panel}:force_original_aspect_ratio=increase,"
+            f"crop={W}:{panel}")
+    src = source_chain(input_path)
+    sp = f",setpts=PTS/{speed}" if abs(speed - 1.0) > 1e-3 else ""
+    return (
+        f"[0:v]{src + ',' if src else ''}{fill},"
+        f"pad={W}:{H}:0:{H - panel}:black[base];"
+        f"[1:v]{fill}[top];"
+        f"[base][top]overlay=0:0:shortest=1{sp}[sv]"
+    ), "[sv]"
+
+
+def _split_cmd(input_path, bank, W, H, chain, speed=1.0, seek=None, bank_dur=0.0):
+    """ffmpeg argv for a split render. `seek` renders a single frame at that
+    time; the bank clip is seeked modulo its own length so it matches the
+    looping it would get in the full render."""
+    graph, last = _split_graph(input_path, W, H, speed)
+    if chain:
+        graph += f";{last}{chain}[out]"
+        last = "[out]"
+    cmd = ["ffmpeg", "-y"]
+    if seek is not None:
+        cmd += ["-ss", f"{seek:.3f}", "-i", input_path,
+                "-ss", f"{(seek % bank_dur) if bank_dur else 0:.3f}", "-i", bank]
+    else:
+        cmd += ["-i", input_path, "-stream_loop", "-1", "-i", bank]
+    # The split export is silent by design — the bank clip's audio is filler and
+    # the two tracks fighting each other is never what you want.
+    cmd += ["-filter_complex", graph, "-map", last, "-an"]
+    return cmd
+
+
+def _split_bank(opts):
+    """(bank_path, bank_duration) for a split render, or (None, 0) if not split.
+    Raises if split is asked for without a usable bank clip, rather than
+    silently falling back to a normal render and confusing the user."""
+    if (opts.get("layout") or "single") != "split":
+        return None, 0.0
+    bank = bank_path(opts.get("bank"))
+    if not bank:
+        have = bank_clips()
+        raise RuntimeError(
+            f"Split screen needs a clip for the top panel. "
+            + (f"Pick one of: {', '.join(have)}." if have
+               else "The bank/ folder is empty — add some clips to it."))
+    return bank, _oriented(bank)[2]
+
+
 def render(input_path, output_path, text, opts, draft=False):
     """Burn text and write a video. draft=True renders fast/small for preview."""
-    W, H, dur, has_audio = probe(input_path)
+    _, _, dur, has_audio = probe(input_path)
+    W, H = canvas(input_path, opts)
     speed = float(opts.get("speed") or 1.0)
     hdr = is_hdr(input_path)
+    bank, _ = _split_bank(opts)
     with tempfile.TemporaryDirectory() as tmp:
         chain, size = build_filter(text, W, H, opts, tmp, dur)
-        vf = ",".join(p for p in [
-            source_chain(input_path),
-            (f"setpts=PTS/{speed}" if abs(speed - 1.0) > 1e-3 else ""),
-            chain,
-        ] if p)
         if draft:
-            # only downscale very large sources; keep it sharp for watching
-            if max(W, H) > 1280:
-                vf += ",scale=1280:1280:force_original_aspect_ratio=decrease:force_divisible_by=2"
             enc = ["-preset", "veryfast", "-crf", "23"]
         else:
             # Final export. crf 18 at 1080p is already well above what IG/TikTok
             # keep — they recompress to ~8-10 Mbps on upload — so going
             # near-lossless just spent encode time on bits nobody ever sees.
             enc = ["-preset", "slow", "-crf", "18"]
-        cmd = ["ffmpeg", "-y", "-i", input_path] + (["-vf", vf] if vf else []) + [
-               "-c:v", "libx264"] + enc + ["-pix_fmt", "yuv420p",
-               "-movflags", "+faststart"] + (SDR_TAGS if hdr else [])
-        if has_audio and abs(speed - 1.0) > 1e-3:
-            cmd += ["-filter:a", _atempo(speed), "-c:a", "aac", "-b:a", "192k"]
-        elif has_audio:
-            cmd += ["-c:a", "copy"]
+        shrink = ("scale=1280:1280:force_original_aspect_ratio=decrease"
+                  ":force_divisible_by=2")
+
+        if bank:
+            if draft and max(W, H) > 1280:
+                chain = (chain + "," if chain else "") + shrink
+            cmd = _split_cmd(input_path, bank, W, H, chain, speed)
+            cmd += ["-c:v", "libx264"] + enc + ["-pix_fmt", "yuv420p",
+                    "-movflags", "+faststart"] + (SDR_TAGS if hdr else [])
         else:
-            cmd += ["-an"]
+            vf = ",".join(p for p in [
+                source_chain(input_path),
+                (f"setpts=PTS/{speed}" if abs(speed - 1.0) > 1e-3 else ""),
+                chain,
+            ] if p)
+            if draft and max(W, H) > 1280:
+                vf += "," + shrink      # only downscale very large sources
+            cmd = ["ffmpeg", "-y", "-i", input_path] + (["-vf", vf] if vf else []) + [
+                   "-c:v", "libx264"] + enc + ["-pix_fmt", "yuv420p",
+                   "-movflags", "+faststart"] + (SDR_TAGS if hdr else [])
+            if has_audio and abs(speed - 1.0) > 1e-3:
+                cmd += ["-filter:a", _atempo(speed), "-c:a", "aac", "-b:a", "192k"]
+            elif has_audio:
+                cmd += ["-c:a", "copy"]
+            else:
+                cmd += ["-an"]
         cmd.append(output_path)
         _run(cmd)
     return size
@@ -713,22 +859,35 @@ def render(input_path, output_path, text, opts, draft=False):
 
 def still(input_path, out_png, at, text, opts):
     """Render a single preview frame (speed doesn't change the look)."""
-    W, H, dur, _ = probe(input_path)
+    _, _, dur, _ = probe(input_path)
+    W, H = canvas(input_path, opts)
     at = max(0.0, min(at, max(0.0, dur - 0.05)))
+    bank, bdur = _split_bank(opts)
     with tempfile.TemporaryDirectory() as tmp:
         chain, size = build_filter(text, W, H, opts, tmp, dur)
-        vf = ",".join(p for p in [source_chain(input_path), chain] if p)
-        _run(["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", input_path,
-              "-vf", vf, "-frames:v", "1", "-update", "1", out_png])
+        if bank:
+            cmd = _split_cmd(input_path, bank, W, H, chain, seek=at, bank_dur=bdur)
+        else:
+            vf = ",".join(p for p in [source_chain(input_path), chain] if p)
+            cmd = ["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", input_path, "-vf", vf]
+        _run(cmd + ["-frames:v", "1", "-update", "1", out_png])
     return size
 
 
-def still_clean(input_path, out_png, at):
+def still_clean(input_path, out_png, at, opts=None):
     """One video frame with NO text (tone-mapped to SDR). The live editor uses
     this as the background and overlays the text as a separate transparent PNG,
-    so dragging/resizing the text is pure client-side CSS (no ffmpeg round-trip)."""
-    W, H, dur, _ = probe(input_path)
+    so dragging/resizing the text is pure client-side CSS (no ffmpeg round-trip).
+    In split mode this is the whole composed canvas — both panels and the black
+    band — so what the editor shows is what gets rendered."""
+    _, _, dur, _ = probe(input_path)
+    W, H = canvas(input_path, opts)
     at = max(0.0, min(at, max(0.0, dur - 0.05)))
+    bank, bdur = _split_bank(opts or {})
+    if bank:
+        _run(_split_cmd(input_path, bank, W, H, "", seek=at, bank_dur=bdur)
+             + ["-frames:v", "1", "-update", "1", out_png])
+        return W, H
     vf = source_chain(input_path)
     cmd = ["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", input_path]
     if vf:
@@ -743,7 +902,8 @@ def still_textlayer(input_path, out_png, at, text, opts, section=None):
     canvas at the video's resolution. Offsets are forced to 0 (the client
     applies the drag offset via CSS). `section` renders just one block section
     so each section is its own independently movable overlay."""
-    W, H, dur, _ = probe(input_path)
+    _, _, dur, _ = probe(input_path)
+    W, H = canvas(input_path, opts)
     with tempfile.TemporaryDirectory() as tmp:
         chain, size = build_filter(text, W, H, opts, tmp, dur,
                                    only_section=section, zero_offsets=True)

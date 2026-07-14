@@ -11,6 +11,11 @@ assets/
 *.MP4
 *.m4v
 
+# ...but the split-screen overlay bank has to ship with the app. Without this
+# the rules above would swallow it, and split screen would work locally and
+# find an empty bank/ in production.
+!bank/**
+
 # python
 __pycache__/
 *.pyc

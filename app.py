@@ -185,6 +185,8 @@ def opts_from(d):
     size = num("size", int, 0)
     return {
         "mode": d.get("mode") or "block",
+        "layout": "split" if d.get("layout") == "split" else "single",
+        "bank": d.get("bank") or None,
         "font": d.get("font") or "TikTok Sans",
         "position": d.get("position") or None,
         "color": d.get("color") or "white",
@@ -216,6 +218,38 @@ def index():
 @app.route("/fonts")
 def fonts():
     return jsonify(list(overlay.FONTS.keys()))
+
+
+@app.route("/bank")
+def bank():
+    """The overlay clips available for the split-screen top panel, plus the
+    canvas split renders into — the editor stage has to switch to it, since a
+    split composition is a fresh 9:16 frame, not the user's own."""
+    out = []
+    for name in overlay.bank_clips():
+        try:
+            w, h, dur, _ = overlay.probe(os.path.join(overlay.BANK_DIR, name))
+        except Exception:
+            continue                      # unreadable clip — just skip it
+        label = os.path.splitext(name)[0].replace("_", " ").replace("-", " ")
+        out.append({"file": name, "title": label.title(), "duration": round(dur, 1)})
+    return jsonify(clips=out,
+                   canvas={"w": overlay.SPLIT_W, "h": overlay.SPLIT_H})
+
+
+@app.route("/bank/<name>/thumb.jpg")
+def bank_thumb(name):
+    """A frame from a bank clip, so the picker shows what you're choosing."""
+    src = overlay.bank_path(name)         # rejects anything outside bank/
+    if not src:
+        return jsonify(error="Unknown clip."), 404
+    out = os.path.join(PREVIEW, f"_bank_{overlay.safe_stem(name)}.jpg")
+    if not os.path.exists(out):
+        try:
+            overlay.bank_thumb(src, out)
+        except Exception as e:
+            return jsonify(error=str(e)), 500
+    return send_from_directory(*os.path.split(out))
 
 
 @app.route("/scripts")
@@ -281,7 +315,9 @@ def frame():
     at = float(d.get("at", 0) or 0)
     out = os.path.join(PREVIEW, d["id"] + "_frame.png")
     try:
-        overlay.still_clean(path, out, at)
+        # opts matter here: in split mode the "clean frame" is the whole composed
+        # canvas (both panels + the black band), not just the user's clip.
+        overlay.still_clean(path, out, at, opts_from(d))
     except Exception as e:
         traceback.print_exc()
         return jsonify(error=str(e)[-800:]), 500
@@ -462,6 +498,21 @@ PAGE = r"""<!doctype html>
   .secBox.grabbing{cursor:grabbing;}
   .posrow{display:flex;align-items:center;justify-content:center;gap:8px;}
   #resetPos{color:var(--accent);font-weight:600;cursor:pointer;font-size:11px;}
+  /* video-type toggle (header) */
+  .seg{display:inline-flex;background:var(--field);border:1px solid var(--line);
+    border-radius:10px;padding:3px;gap:3px;}
+  .seg button{margin:0;width:auto;padding:6px 14px;font-size:12px;font-weight:600;
+    border-radius:7px;background:transparent;color:var(--muted);}
+  .seg button.on{background:var(--accent);color:#08080c;}
+  /* split-screen bank picker */
+  #bankbox{margin-top:12px;}
+  .bankrow{display:flex;gap:8px;align-items:center;}
+  #bankthumb{width:64px;height:64px;flex:0 0 auto;object-fit:cover;border-radius:8px;
+    border:1px solid var(--line);background:var(--field);}
+  #bankSel{flex:1;min-width:0;}
+  .bankbtn{margin:0;width:auto;flex:0 0 auto;padding:8px 11px;font-size:13px;
+    background:var(--field);color:var(--fg);border:1px solid var(--line);}
+  .splitnote{font-size:11px;color:var(--muted);margin-top:6px;}
   .handle{position:absolute;width:14px;height:14px;background:var(--accent);
     border:2px solid #08080c;border-radius:3px;pointer-events:auto;touch-action:none;}
   .handle.tl{top:-7px;left:-7px;cursor:nwse-resize;}
@@ -505,6 +556,10 @@ PAGE = r"""<!doctype html>
 </style></head><body>
 <header>
   <h1><span>b-roll editor</span></h1>
+  <div class="seg" id="layoutseg">
+    <button type="button" data-layout="single" class="on">Text overlay</button>
+    <button type="button" data-layout="split">Split screen</button>
+  </div>
   <div class="hint" id="hint">TikTok Sans · live preview · local</div>
 </header>
 <main>
@@ -548,6 +603,18 @@ PAGE = r"""<!doctype html>
 
   <!-- RIGHT: controls -->
   <section class="card">
+    <!-- split screen only: which clip fills the top panel -->
+    <div id="bankbox" hidden>
+      <label>Top clip (overlay bank)</label>
+      <div class="bankrow">
+        <img id="bankthumb" alt="">
+        <select id="bankSel"><option value="">— pick a clip —</option></select>
+        <button type="button" class="bankbtn" id="bankPrev" title="previous clip">‹</button>
+        <button type="button" class="bankbtn" id="bankNext" title="next clip">›</button>
+      </div>
+      <div class="splitnote" id="splitnote">Top 45% overlay · 10% text band · bottom 45% your clip.</div>
+    </div>
+
     <label>Text</label>
     <select id="script" style="margin-bottom:9px">
       <option value="">— load one of the scripts —</option>
@@ -616,7 +683,8 @@ function showStill(){
 
 // Each blank-line section of the text is an independent movable/resizable box.
 // state.secs[i] = {dx, dy, size(null=auto), bbox, layer:<img>, box:<div>}
-let state={id:null,duration:0,vw:0,vh:0,frameAt:null,count:0,secs:[]};
+let state={id:null,duration:0,vw:0,vh:0,frameAt:null,count:0,secs:[],
+           layout:"single",bank:null};
 
 // display px per video px (frame is shown at width:100%, aspect preserved)
 function layerScale(){
@@ -781,6 +849,71 @@ scriptSel.onchange=async()=>{
   schedulePreview();
 };
 
+// ---- video type: single (text over one clip) vs split screen ----------------
+const bankbox=$("#bankbox"), bankSel=$("#bankSel"), bankThumb=$("#bankthumb"),
+      splitnote=$("#splitnote");
+let BANK=[], SPLITC={w:1080,h:1920};
+fetch("/bank").then(r=>r.json()).then(j=>{
+  BANK=j.clips||[]; if(j.canvas) SPLITC=j.canvas;
+  for(const b of BANK){
+    const o=document.createElement("option");
+    o.value=b.file; o.textContent=b.title+" ("+b.duration+"s)";
+    bankSel.appendChild(o);
+  }
+}).catch(()=>{});
+
+function setBank(file){
+  state.bank=file||null;
+  bankSel.value=file||"";
+  if(file){ bankThumb.src="/bank/"+encodeURIComponent(file)+"/thumb.jpg"; }
+  else{ bankThumb.removeAttribute("src"); }
+  if(state.layout==="split" && !file){
+    splitnote.textContent=BANK.length
+      ? "Pick a top clip — split screen needs one."
+      : "bank/ is empty. Drop clips into the bank/ folder.";
+  }else{
+    splitnote.textContent="Top 45% overlay · 10% text band · bottom 45% your clip.";
+  }
+  // the composed background changes with the bank clip, so force a re-fetch
+  state.frameAt=null;
+  schedulePreview();
+}
+function cycleBank(step){
+  if(!BANK.length) return;
+  const i=BANK.findIndex(b=>b.file===state.bank);
+  const n=(i<0?0:(i+step+BANK.length)%BANK.length);
+  setBank(BANK[n].file);
+}
+bankSel.onchange=()=>setBank(bankSel.value);
+$("#bankPrev").onclick=()=>cycleBank(-1);
+$("#bankNext").onclick=()=>cycleBank(1);
+
+function setLayout(l){
+  state.layout=l;
+  for(const b of document.querySelectorAll("#layoutseg button"))
+    b.classList.toggle("on", b.dataset.layout===l);
+  bankbox.hidden=(l!=="split");
+  // split confines the text to the black band, so the position control (top/
+  // center/bottom of the frame) has no meaning there.
+  $("#position").disabled=(l==="split");
+  // A split render composes a NEW 9:16 frame rather than drawing on the user's
+  // own, so the stage — which is the coordinate space the drag layers and
+  // resize boxes live in — has to switch with it, or every overlay is offset.
+  if(state.srcW){
+    state.vw = (l==="split") ? SPLITC.w : state.srcW;
+    state.vh = (l==="split") ? SPLITC.h : state.srcH;
+    stage.style.aspectRatio = state.vw+"/"+state.vh;
+    sizeStage();
+  }
+  state.secs=[]; state.count=0;         // bboxes are in the old canvas space
+  layersEl.innerHTML=""; boxesEl.innerHTML="";
+  state.frameAt=null;                  // background composition changed
+  if(l==="split" && !state.bank && BANK.length){ setBank(BANK[0].file); return; }
+  setBank(state.bank);
+}
+for(const b of document.querySelectorAll("#layoutseg button"))
+  b.onclick=()=>setLayout(b.dataset.layout);
+
 // slider value readouts
 const speed=$("#speed"),size=$("#size"),spacing=$("#spacing"),border=$("#border"),
   headerGap=$("#header_gap"),footerGap=$("#footer_gap");
@@ -797,6 +930,7 @@ readouts();
 function opts(){
   return {
     id:state.id, text:text.value, at:+scrub.value,
+    layout:state.layout, bank:state.bank,
     mode:$("#mode").value, font:$("#font").value, position:$("#position").value,
     color:$("#color").value, outline:$("#outline").value,
     border:+border.value, size:+size.value, spacing:+spacing.value,
@@ -821,7 +955,9 @@ async function doPreview(){
   try{
     // clean background frame — only re-fetch when the scrub time changes
     const framePromise=(state.frameAt!==o.at || !frame.getAttribute("src"))
-      ? fetch("/frame",{method:"POST",headers:HJSON,body:JSON.stringify({id:o.id,at:o.at})})
+      ? fetch("/frame",{method:"POST",headers:HJSON,
+          // layout+bank matter: in split mode the background IS the composition
+          body:JSON.stringify({id:o.id,at:o.at,layout:o.layout,bank:o.bank})})
           .then(r=>r.ok?r.blob():Promise.reject(new Error("frame failed")))
           .then(b=>{ if(lastFrameURL)URL.revokeObjectURL(lastFrameURL);
                      lastFrameURL=URL.createObjectURL(b); frame.src=lastFrameURL; state.frameAt=o.at; })
@@ -875,10 +1011,14 @@ function upload(f){
 // a video is ready server-side (however it got there — upload or Drive import)
 function loaded(j){
   if(j.error){ err.textContent=j.error; pvstatus.textContent=""; return; }
-  state.id=j.id; state.duration=j.duration; state.vw=j.width; state.vh=j.height;
+  state.id=j.id; state.duration=j.duration;
+  state.srcW=j.width; state.srcH=j.height;      // the clip's own frame
+  // in split the canvas is a fresh 9:16 frame, not the clip's
+  const sp=(state.layout==="split");
+  state.vw=sp?SPLITC.w:j.width; state.vh=sp?SPLITC.h:j.height;
   state.frameAt=null; state.count=0; state.secs=[];
   layersEl.innerHTML=""; boxesEl.innerHTML="";
-  if(j.width&&j.height) stage.style.aspectRatio=j.width+"/"+j.height;
+  if(state.vw&&state.vh) stage.style.aspectRatio=state.vw+"/"+state.vh;
   sizeStage();
   updatePosBadge();
   scrub.max=Math.max(0.1,j.duration); scrub.value=Math.min(j.duration/3,j.duration);
