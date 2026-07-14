@@ -706,7 +706,20 @@ function upload(f){
   if(!f) return;
   err.textContent=""; pvstatus.textContent="uploading…";
   const fd=new FormData(); fd.append("video",f);
-  fetch("/upload",{method:"POST",body:fd}).then(r=>r.json()).then(j=>{
+  const mb=(f.size/1048576).toFixed(0);
+  fetch("/upload",{method:"POST",body:fd}).then(async r=>{
+    // A proxy/edge failure (Railway's "upstream error", a 502, an HTML 413)
+    // is not JSON. Parsing it blindly throws "Unexpected token" and hides the
+    // real status — surface the status and the body instead.
+    const raw=await r.text();
+    try{ return JSON.parse(raw); }
+    catch{
+      const body=raw.trim().slice(0,120)||"(empty response)";
+      throw new Error(`Upload failed — server returned ${r.status} ${r.statusText}: `
+                      +`${body}. (${mb} MB file; this is the host/proxy rejecting or `
+                      +`dropping the request, not the app.)`);
+    }
+  }).then(j=>{
     if(j.error){ err.textContent=j.error; pvstatus.textContent=""; return; }
     state.id=j.id; state.duration=j.duration; state.vw=j.width; state.vh=j.height;
     state.frameAt=null; state.count=0; state.secs=[];
