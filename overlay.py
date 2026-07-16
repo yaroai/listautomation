@@ -100,9 +100,17 @@ DEFAULTS = {
     "shadow_alpha": 0.55,
     "shadow_off": 3,
     "speed": 1.0,        # video speed multiplier
+    "music": None,       # filename of a background track from music/, or None
     "dx": 0.0,           # drag offset, pixels (horizontal)
     "dy": 0.0,           # drag offset, pixels (vertical)
 }
+
+# Background music mix levels. When the clip already has sound (a voiceover,
+# say) the song sits UNDER it so the words stay clear; when the clip is silent
+# — or in split mode, which is silent by design — the song carries the whole
+# track, so it comes up near full.
+MUSIC_VOL_UNDER = 0.28      # song volume when mixed beneath existing audio
+MUSIC_VOL_SOLO = 0.85       # song volume when it's the only audio
 
 
 # ---------------------------------------------------------- font helpers -----
@@ -710,6 +718,26 @@ def _atempo(speed):
     return ",".join(parts)
 
 
+def _audio_graph(music_idx, has_source_audio, speed):
+    """filter_complex audio branch + its output label for a music mix.
+
+    When the clip already has sound, the song is mixed UNDER it (so a voiceover
+    stays clear) and the mix ends with the finite source audio — otherwise the
+    infinitely-looped song would stretch the file past the video. When the clip
+    is silent the song carries the whole track and the caller adds -shortest to
+    trim the loop back to the video length. Returns (graph, label, need_shortest)."""
+    if has_source_audio:
+        atempo = _atempo(speed) if abs(speed - 1.0) > 1e-3 else None
+        src = f"[0:a]{atempo + ',' if atempo else ''}volume=1.0[a0]"
+        mus = f"[{music_idx}:a]volume={MUSIC_VOL_UNDER}[a1]"
+        # normalize=0 keeps the voice at full level (amix otherwise divides every
+        # input by the input count, halving both); duration=first ends on the clip.
+        mix = ("[a0][a1]amix=inputs=2:duration=first:"
+               "dropout_transition=0:normalize=0[aout]")
+        return f"{src};{mus};{mix}", "[aout]", False
+    return f"[{music_idx}:a]volume={MUSIC_VOL_SOLO}[aout]", "[aout]", True
+
+
 # ------------------------------------------------------------- render --------
 def _run(cmd):
     r = subprocess.run(cmd, capture_output=True, text=True)
@@ -736,6 +764,26 @@ def bank_path(name):
     if not name or name not in bank_clips():
         return None
     return os.path.join(BANK_DIR, name)
+
+
+MUSIC_DIR = os.path.join(HERE, "music")
+MUSIC_EXT = (".mp3", ".m4a", ".aac", ".wav", ".ogg", ".opus", ".flac")
+
+
+def music_clips():
+    """The background-music tracks available to pick, sorted by name."""
+    if not os.path.isdir(MUSIC_DIR):
+        return []
+    return sorted(f for f in os.listdir(MUSIC_DIR)
+                  if os.path.splitext(f)[1].lower() in MUSIC_EXT)
+
+
+def music_path(name):
+    """Resolve a music track by name. Rejects anything outside music/ — this
+    comes straight off a request, so '../../etc/passwd' must not resolve."""
+    if not name or name not in music_clips():
+        return None
+    return os.path.join(MUSIC_DIR, name)
 
 
 def safe_stem(name):
@@ -774,10 +822,13 @@ def _split_graph(input_path, W, H, speed=1.0):
     ), "[sv]"
 
 
-def _split_cmd(input_path, bank, W, H, chain, speed=1.0, seek=None, bank_dur=0.0):
+def _split_cmd(input_path, bank, W, H, chain, speed=1.0, seek=None, bank_dur=0.0,
+               music=None, clip_pre=None):
     """ffmpeg argv for a split render. `seek` renders a single frame at that
     time; the bank clip is seeked modulo its own length so it matches the
-    looping it would get in the full render."""
+    looping it would get in the full render. `music` (a full render only) adds a
+    looped background track as the sole audio. `clip_pre` are input options
+    (-ss/-t) that trim the user's clip to the kept section before compositing."""
     graph, last = _split_graph(input_path, W, H, speed)
     if chain:
         graph += f";{last}{chain}[out]"
@@ -787,10 +838,18 @@ def _split_cmd(input_path, bank, W, H, chain, speed=1.0, seek=None, bank_dur=0.0
         cmd += ["-ss", f"{seek:.3f}", "-i", input_path,
                 "-ss", f"{(seek % bank_dur) if bank_dur else 0:.3f}", "-i", bank]
     else:
-        cmd += ["-i", input_path, "-stream_loop", "-1", "-i", bank]
+        cmd += (clip_pre or []) + ["-i", input_path, "-stream_loop", "-1", "-i", bank]
     # The split export is silent by design — the bank clip's audio is filler and
-    # the two tracks fighting each other is never what you want.
-    cmd += ["-filter_complex", graph, "-map", last, "-an"]
+    # the two tracks fighting each other is never what you want. A background
+    # song is the one sound we do add: it's input 2, and -shortest trims the
+    # infinite loop back to the (finite) composed video.
+    if music and seek is None:
+        graph += f";[2:a]volume={MUSIC_VOL_SOLO}[aout]"
+        cmd += ["-stream_loop", "-1", "-i", music,
+                "-filter_complex", graph, "-map", last, "-map", "[aout]",
+                "-c:a", "aac", "-b:a", "192k", "-shortest"]
+    else:
+        cmd += ["-filter_complex", graph, "-map", last, "-an"]
     return cmd
 
 
@@ -810,6 +869,31 @@ def _split_bank(opts):
     return bank, _oriented(bank)[2]
 
 
+def _trim_window(opts, dur):
+    """Input-seek args (-ss/-t) that keep only the chosen [start, end] section
+    of the source, applied BEFORE any speed change. Empty when the whole clip is
+    kept. Speed is handled downstream, so a 6s section at 2x still exports 3s."""
+    def f(key, default):
+        v = opts.get(key)
+        try:
+            return float(v) if v not in (None, "") else default
+        except (TypeError, ValueError):
+            return default
+    start = max(0.0, f("trim_start", 0.0))
+    end = f("trim_end", dur or 0.0)
+    if dur:
+        start = min(start, max(0.0, dur - 0.1))
+        end = min(end, dur)
+    seg = end - start
+    pre = []
+    if start > 0.01:
+        pre += ["-ss", f"{start:.3f}"]
+    # only cap the length when a real sub-section (not the whole clip) was picked
+    if seg > 0.05 and (start > 0.01 or (dur and seg < dur - 0.05)):
+        pre += ["-t", f"{seg:.3f}"]
+    return pre
+
+
 def render(input_path, output_path, text, opts, draft=False):
     """Burn text and write a video. draft=True renders fast/small for preview."""
     _, _, dur, has_audio = probe(input_path)
@@ -817,6 +901,8 @@ def render(input_path, output_path, text, opts, draft=False):
     speed = float(opts.get("speed") or 1.0)
     hdr = is_hdr(input_path)
     bank, _ = _split_bank(opts)
+    music = music_path(opts.get("music"))
+    clip_pre = _trim_window(opts, dur)
     with tempfile.TemporaryDirectory() as tmp:
         chain, size = build_filter(text, W, H, opts, tmp, dur)
         if draft:
@@ -826,15 +912,34 @@ def render(input_path, output_path, text, opts, draft=False):
             # keep — they recompress to ~8-10 Mbps on upload — so going
             # near-lossless just spent encode time on bits nobody ever sees.
             enc = ["-preset", "slow", "-crf", "18"]
+        venc = ["-c:v", "libx264"] + enc + ["-pix_fmt", "yuv420p",
+                "-movflags", "+faststart"] + (SDR_TAGS if hdr else [])
         shrink = ("scale=1280:1280:force_original_aspect_ratio=decrease"
                   ":force_divisible_by=2")
 
         if bank:
             if draft and max(W, H) > 1280:
                 chain = (chain + "," if chain else "") + shrink
-            cmd = _split_cmd(input_path, bank, W, H, chain, speed)
-            cmd += ["-c:v", "libx264"] + enc + ["-pix_fmt", "yuv420p",
-                    "-movflags", "+faststart"] + (SDR_TAGS if hdr else [])
+            cmd = _split_cmd(input_path, bank, W, H, chain, speed, music=music,
+                             clip_pre=clip_pre)
+            cmd += venc
+        elif music:
+            # A background song means a second input, so the video filters move
+            # into filter_complex (a simple -vf can't coexist with mapping a
+            # second stream). The song is input 1.
+            vparts = [source_chain(input_path),
+                      (f"setpts=PTS/{speed}" if abs(speed - 1.0) > 1e-3 else ""),
+                      chain]
+            if draft and max(W, H) > 1280:
+                vparts.append(shrink)
+            vbody = ",".join(p for p in vparts if p) or "null"
+            aud, alabel, need_short = _audio_graph(1, has_audio, speed)
+            graph = f"[0:v]{vbody}[vout];{aud}"
+            cmd = (["ffmpeg", "-y"] + clip_pre + ["-i", input_path,
+                    "-stream_loop", "-1", "-i", music,
+                    "-filter_complex", graph, "-map", "[vout]", "-map", alabel]
+                   + venc + ["-c:a", "aac", "-b:a", "192k"]
+                   + (["-shortest"] if need_short else []))
         else:
             vf = ",".join(p for p in [
                 source_chain(input_path),
@@ -843,9 +948,7 @@ def render(input_path, output_path, text, opts, draft=False):
             ] if p)
             if draft and max(W, H) > 1280:
                 vf += "," + shrink      # only downscale very large sources
-            cmd = ["ffmpeg", "-y", "-i", input_path] + (["-vf", vf] if vf else []) + [
-                   "-c:v", "libx264"] + enc + ["-pix_fmt", "yuv420p",
-                   "-movflags", "+faststart"] + (SDR_TAGS if hdr else [])
+            cmd = ["ffmpeg", "-y"] + clip_pre + ["-i", input_path] + (["-vf", vf] if vf else []) + venc
             if has_audio and abs(speed - 1.0) > 1e-3:
                 cmd += ["-filter:a", _atempo(speed), "-c:a", "aac", "-b:a", "192k"]
             elif has_audio:

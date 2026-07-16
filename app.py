@@ -197,6 +197,9 @@ def opts_from(d):
         "header_gap": num("header_gap", float, 1.6),
         "footer_gap": num("footer_gap", float, 1.6),
         "speed": num("speed", float, 1.0),
+        "trim_start": num("trim_start", float, 0.0),
+        "trim_end": num("trim_end", float, None),
+        "music": d.get("music") or None,
         "upper": bool(d.get("upper")),
         "shadow": bool(d.get("shadow")),
         # per-section movable/resizable boxes
@@ -250,6 +253,25 @@ def bank_thumb(name):
         except Exception as e:
             return jsonify(error=str(e)), 500
     return send_from_directory(*os.path.split(out))
+
+
+@app.route("/music")
+def music_list():
+    """Background-music tracks the editor can pick from (in music/)."""
+    out = []
+    for name in overlay.music_clips():
+        label = os.path.splitext(name)[0].replace("_", " ").replace("-", " ")
+        out.append({"file": name, "title": label.strip()})
+    return jsonify(tracks=out)
+
+
+@app.route("/music/<name>")
+def music_file(name):
+    """Serve a track so the picker can play a listen preview."""
+    src = overlay.music_path(name)          # rejects anything outside music/
+    if not src:
+        return jsonify(error="Unknown track."), 404
+    return send_from_directory(*os.path.split(src), conditional=True)
 
 
 @app.route("/scripts")
@@ -513,6 +535,12 @@ PAGE = r"""<!doctype html>
   .bankbtn{margin:0;width:auto;flex:0 0 auto;padding:8px 11px;font-size:13px;
     background:var(--field);color:var(--fg);border:1px solid var(--line);}
   .splitnote{font-size:11px;color:var(--muted);margin-top:6px;}
+  /* background-music picker */
+  .musicrow{display:flex;gap:8px;align-items:center;}
+  #music{flex:1;min-width:0;}
+  .musicbtn{margin:0;width:auto;flex:0 0 auto;padding:8px 13px;font-size:13px;
+    background:var(--field);color:var(--fg);border:1px solid var(--line);}
+  .musicbtn.on{background:var(--accent);color:#08080c;border-color:var(--accent);}
   .handle{position:absolute;width:14px;height:14px;background:var(--accent);
     border:2px solid #08080c;border-radius:3px;pointer-events:auto;touch-action:none;}
   .handle.tl{top:-7px;left:-7px;cursor:nwse-resize;}
@@ -520,6 +548,26 @@ PAGE = r"""<!doctype html>
   .handle.bl{bottom:-7px;left:-7px;cursor:nesw-resize;}
   .handle.br{bottom:-7px;right:-7px;cursor:nwse-resize;}
   .scrub{width:100%;margin-top:10px;}
+  /* trim: dual-handle range to keep a section of the source clip */
+  .trim{margin-top:14px;}
+  .trimhead{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;
+    margin-bottom:9px;}
+  .trimval{color:var(--accent);text-transform:none;letter-spacing:0;font-size:12px;
+    font-variant-numeric:tabular-nums;}
+  .trimslider{position:relative;height:26px;}
+  .trimtrack{position:absolute;top:50%;left:0;right:0;height:5px;transform:translateY(-50%);
+    background:var(--field);border:1px solid var(--line);border-radius:4px;}
+  .trimfill{position:absolute;top:50%;height:5px;transform:translateY(-50%);
+    background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:4px;}
+  .trimslider input[type=range]{position:absolute;top:0;left:0;width:100%;height:26px;
+    margin:0;-webkit-appearance:none;appearance:none;background:transparent;pointer-events:none;}
+  .trimslider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+    width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid var(--accent);
+    cursor:grab;pointer-events:auto;box-shadow:0 1px 4px rgba(0,0,0,.5);}
+  .trimslider input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;
+    background:#fff;border:2px solid var(--accent);cursor:grab;pointer-events:auto;}
+  .trimslider input[type=range]::-moz-range-track{background:transparent;border:0;}
   textarea{width:100%;min-height:200px;resize:vertical;background:var(--field);
     color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:11px;
     font:13px/1.5 ui-monospace,Consolas,monospace;}
@@ -590,6 +638,15 @@ PAGE = r"""<!doctype html>
       <input id="scrub" class="scrub" type="range" min="0" max="100" value="0" step="0.1">
       <div class="badge" id="timebadge">preview frame</div>
       <div class="badge posrow"><span id="posBadge">drag each section · corners resize</span><span id="resetPos" hidden>reset all</span></div>
+      <div id="trimwrap" class="trim" hidden>
+        <div class="trimhead"><span>Keep section</span><span class="trimval" id="trimReadout"></span></div>
+        <div class="trimslider" id="trimSlider">
+          <div class="trimtrack"></div>
+          <div class="trimfill" id="trimFill"></div>
+          <input id="trimStart" type="range" min="0" max="100" value="0" step="0.1">
+          <input id="trimEnd" type="range" min="0" max="100" value="100" step="0.1">
+        </div>
+      </div>
     </div>
     <div id="resultwrap" hidden style="margin-top:16px">
       <label>Exported video</label>
@@ -659,7 +716,17 @@ PAGE = r"""<!doctype html>
         <label class="chk"><input type="checkbox" id="upper"> UPPERCASE</label>
         <label class="chk"><input type="checkbox" id="shadow"> Shadow (3D)</label>
       </div>
+
+      <div class="full">
+        <label>Background music</label>
+        <div class="musicrow">
+          <select id="music"><option value="">— none —</option></select>
+          <button type="button" class="musicbtn" id="musicPlay" title="listen" disabled>▶</button>
+        </div>
+        <div class="splitnote" id="musicnote">Loops to fill the clip · mixed under any existing audio. Heard in Preview &amp; Export.</div>
+      </div>
     </div>
+    <audio id="musicAudio" preload="none"></audio>
     <div class="badge" id="pvstatus"></div>
   </section>
 </main>
@@ -888,6 +955,27 @@ bankSel.onchange=()=>setBank(bankSel.value);
 $("#bankPrev").onclick=()=>cycleBank(-1);
 $("#bankNext").onclick=()=>cycleBank(1);
 
+// ---- background music: pick a track + listen ------------------------------
+const musicSel=$("#music"), musicPlay=$("#musicPlay"), musicAudio=$("#musicAudio");
+fetch("/music").then(r=>r.json()).then(j=>{
+  for(const t of (j.tracks||[])){
+    const o=document.createElement("option");
+    o.value=t.file; o.textContent=t.title; musicSel.appendChild(o);
+  }
+}).catch(()=>{});
+function stopListen(){ try{musicAudio.pause();}catch(e){} musicPlay.classList.remove("on"); musicPlay.textContent="▶"; }
+musicSel.onchange=()=>{ stopListen(); musicPlay.disabled=!musicSel.value; };
+musicPlay.onclick=()=>{
+  if(!musicSel.value) return;
+  if(!musicPlay.classList.contains("on")){
+    musicAudio.src="/music/"+encodeURIComponent(musicSel.value);
+    musicAudio.currentTime=0;
+    musicAudio.play().then(()=>{ musicPlay.classList.add("on"); musicPlay.textContent="⏸"; })
+      .catch(()=>{});
+  } else { stopListen(); }
+};
+musicAudio.addEventListener("ended",stopListen);
+
 function setLayout(l){
   state.layout=l;
   for(const b of document.querySelectorAll("#layoutseg button"))
@@ -935,6 +1023,8 @@ function opts(){
     color:$("#color").value, outline:$("#outline").value,
     border:+border.value, size:+size.value, spacing:+spacing.value,
     header_gap:+headerGap.value, footer_gap:+footerGap.value, speed:+speed.value,
+    trim_start:+trimStart.value, trim_end:+trimEnd.value,
+    music:$("#music").value,
     upper:$("#upper").checked, shadow:$("#shadow").checked,
     offsets:state.secs.map(s=>[s.dx,s.dy]),   // per-section drag offset
     sizes:state.secs.map(s=>s.size||0),        // per-section size (0 = auto)
@@ -987,6 +1077,42 @@ async function doPreview(){
 text.addEventListener("input",schedulePreview);
 scrub.addEventListener("input",()=>{ timebadge.textContent="preview @ "+(+scrub.value).toFixed(1)+"s"; schedulePreview(); });
 
+// ---- trim: keep a section of the source, then speed it up -------------------
+const trimwrap=$("#trimwrap"), trimStart=$("#trimStart"), trimEnd=$("#trimEnd"),
+      trimFill=$("#trimFill"), trimReadout=$("#trimReadout");
+const MIN_SEG=0.5;   // never let the kept section collapse below this
+const fmtS=s=>(Math.round(s*10)/10).toFixed(1)+"s";
+function updateTrimUI(){
+  const max=parseFloat(trimEnd.max)||0;
+  const a=parseFloat(trimStart.value)||0, b=parseFloat(trimEnd.value)||0;
+  const pa=max?a/max*100:0, pb=max?b/max*100:100;
+  trimFill.style.left=pa+"%"; trimFill.style.width=Math.max(0,pb-pa)+"%";
+  const seg=Math.max(0,b-a), sp=+speed.value||1;
+  trimReadout.textContent=`${fmtS(a)}–${fmtS(b)} · keep ${fmtS(seg)} → export ${fmtS(seg/sp)} @ ${sp.toFixed(2)}×`;
+}
+function initTrim(dur){
+  const d=Math.max(0.1,dur||0);
+  trimStart.max=d; trimEnd.max=d; trimStart.value=0; trimEnd.value=d;
+  trimwrap.hidden=false; updateTrimUI();
+}
+trimStart.addEventListener("input",()=>{
+  const b=parseFloat(trimEnd.value)||0;
+  if((parseFloat(trimStart.value)||0)>b-MIN_SEG) trimStart.value=Math.max(0,b-MIN_SEG);
+  trimStart.style.zIndex="3"; trimEnd.style.zIndex="2"; updateTrimUI();
+});
+trimEnd.addEventListener("input",()=>{
+  const a=parseFloat(trimStart.value)||0, max=parseFloat(trimEnd.max)||0;
+  if((parseFloat(trimEnd.value)||0)<a+MIN_SEG) trimEnd.value=Math.min(max,a+MIN_SEG);
+  trimEnd.style.zIndex="3"; trimStart.style.zIndex="2"; updateTrimUI();
+});
+// releasing a handle jumps the preview frame to that cut point so you can see it
+trimStart.addEventListener("change",()=>{ scrub.value=trimStart.value;
+  scrub.dispatchEvent(new Event("input")); });
+trimEnd.addEventListener("change",()=>{
+  scrub.value=Math.max(0,(parseFloat(trimEnd.value)||0)-0.1);
+  scrub.dispatchEvent(new Event("input")); });
+speed.addEventListener("input",updateTrimUI);
+
 // upload
 function upload(f){
   if(!f) return;
@@ -1023,6 +1149,7 @@ function loaded(j){
   updatePosBadge();
   scrub.max=Math.max(0.1,j.duration); scrub.value=Math.min(j.duration/3,j.duration);
   timebadge.textContent="preview @ "+(+scrub.value).toFixed(1)+"s";
+  initTrim(j.duration);
   // hide the big dropzone; expose "change clip" compactly in the header so
   // the video preview gets the full column height.
   drop.style.display="none";
