@@ -541,6 +541,38 @@ PAGE = r"""<!doctype html>
   .musicbtn{margin:0;width:auto;flex:0 0 auto;padding:8px 13px;font-size:13px;
     background:var(--field);color:var(--fg);border:1px solid var(--line);}
   .musicbtn.on{background:var(--accent);color:#08080c;border-color:var(--accent);}
+  /* posting session -> bulk CSV */
+  #session{margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--line);}
+  .sessbtn{margin:0;width:100%;padding:10px;font-size:13px;}
+  .sessbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
+  .sessdot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;background:var(--accent2);
+    box-shadow:0 0 0 3px rgba(254,44,85,.18);animation:pulse 1.6s infinite;}
+  @keyframes pulse{50%{opacity:.35;}}
+  #sessCount{font-size:13px;font-weight:600;flex:1;min-width:120px;}
+  .sessbar .sessbtn{width:auto;flex:0 0 auto;padding:8px 14px;font-size:13px;}
+  .sesslink{background:none;border:0;color:var(--muted);cursor:pointer;font-size:12px;
+    width:auto;margin:0;padding:4px 2px;}
+  .sesslink:hover{color:var(--accent2);}
+  #sessFiles{margin-bottom:10px;}
+  .sessrow{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);}
+  .sessrow:first-child{border-top:0;}
+  .sessrow .fn{flex:1;min-width:0;font-size:12px;color:var(--fg);overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;}
+  .sessrow select{width:auto;flex:0 0 auto;max-width:160px;font-size:12px;padding:5px 6px;}
+  .sessrow .rm{width:auto;margin:0;padding:1px 8px;background:none;border:1px solid var(--line);
+    color:var(--muted);font-size:15px;line-height:1.3;border-radius:7px;cursor:pointer;flex:0 0 auto;}
+  .sessrow .rm:hover{border-color:var(--accent2);color:var(--accent2);}
+  .sessrow.warn select{border-color:var(--accent2);}
+  #sessDefaults{background:var(--field);border:1px solid var(--line);border-radius:10px;
+    padding:10px 12px;}
+  #sessDefaults summary{font-size:11px;color:var(--muted);cursor:pointer;
+    text-transform:uppercase;letter-spacing:.5px;}
+  .sessgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;margin:10px 0;}
+  .sessgrid .full{grid-column:1/3;}
+  .sessgrid label{margin-bottom:4px;}
+  #session input[type=text]{width:100%;background:var(--field);color:var(--fg);
+    border:1px solid var(--line);border-radius:9px;padding:8px;font-size:13px;}
+  #sess_pain_points{height:auto;}
   .handle{position:absolute;width:14px;height:14px;background:var(--accent);
     border:2px solid #08080c;border-radius:3px;pointer-events:auto;touch-action:none;}
   .handle.tl{top:-7px;left:-7px;cursor:nwse-resize;}
@@ -660,6 +692,38 @@ PAGE = r"""<!doctype html>
 
   <!-- RIGHT: controls -->
   <section class="card">
+    <!-- posting session: collect every export, then emit a bulk-posting CSV -->
+    <div id="session">
+      <button type="button" id="sessStart" class="secondary sessbtn">● Start posting session</button>
+      <div id="sessActive" hidden>
+        <div class="sessbar">
+          <span class="sessdot"></span>
+          <span id="sessCount">0 videos in this session</span>
+          <button type="button" id="sessEnd" class="sessbtn">End · download CSV</button>
+          <button type="button" id="sessCancel" class="sesslink">cancel</button>
+        </div>
+        <div id="sessFiles" hidden></div>
+        <details id="sessDefaults" open>
+          <summary>Session tags — applied to every video</summary>
+          <div class="sessgrid">
+            <div><label>Default account (new exports)</label><select id="sess_ig_handle"></select></div>
+            <div><label>Experiment id</label><input type="text" id="sess_experiment_id" value="solo" spellcheck="false"></div>
+            <div><label>Cohort</label><select id="sess_cohort"></select></div>
+            <div><label>Niche</label><select id="sess_niche"></select></div>
+            <div><label>Industry</label><select id="sess_industry"></select></div>
+            <div><label>Intent stage</label><select id="sess_intent_stage"></select></div>
+            <div><label>Hook type</label><select id="sess_hook_type"></select></div>
+            <div><label>CTA type</label><select id="sess_cta_type"></select></div>
+            <div><label>B-roll source</label><select id="sess_broll_source"></select></div>
+            <div><label>Audio source</label><select id="sess_audio_source"></select></div>
+            <div><label>Variant axis</label><select id="sess_variant_axis"></select></div>
+            <div class="full"><label>Pain points (up to 3)</label><select id="sess_pain_points" multiple size="4"></select></div>
+          </div>
+          <div class="splitnote">Each export is added below with its own account — switch the default between batches (or edit any row) to split 10 videos 3/3/3/1 across accounts. Filename, format, overlay, hook line &amp; caption are captured automatically; the rest come from these tags.</div>
+        </details>
+      </div>
+    </div>
+
     <!-- split screen only: which clip fills the top panel -->
     <div id="bankbox" hidden>
       <label>Top clip (overlay bank)</label>
@@ -751,7 +815,7 @@ function showStill(){
 // Each blank-line section of the text is an independent movable/resizable box.
 // state.secs[i] = {dx, dy, size(null=auto), bbox, layer:<img>, box:<div>}
 let state={id:null,duration:0,vw:0,vh:0,frameAt:null,count:0,secs:[],
-           layout:"single",bank:null};
+           layout:"single",bank:null,caption:""};
 
 // display px per video px (frame is shown at width:100%, aspect preserved)
 function layerScale(){
@@ -913,6 +977,7 @@ scriptSel.onchange=async()=>{
   text.value=s.text;
   const bits=[]; if(s.caption)bits.push(s.caption); if(s.hashtags)bits.push(s.hashtags);
   meta.textContent=bits.join("\n\n"); meta.hidden=!bits.length;
+  state.caption=bits.join("\n\n");   // reused as caption_text in the posting CSV
   schedulePreview();
 };
 
@@ -1113,6 +1178,152 @@ trimEnd.addEventListener("change",()=>{
   scrub.dispatchEvent(new Event("input")); });
 speed.addEventListener("input",updateTrimUI);
 
+// ---- posting session: collect exports -> bulk-posting CSV -------------------
+// The vocab + column order mirror BULK_CSV_GUIDE.md exactly, so a downloaded
+// file imports cleanly into the posting app. Enum dropdowns can only hold valid
+// values (the guide's rule #3). Anything the editor can't know is left to the
+// shared "session tags" or blank for you to finish in the app's grid.
+const CSV_COLS=["filename","ig_handle","experiment_id","variant_id","variant_axis",
+  "control_flag","format","format_subtype","broll_source","demo_surface","audio_source",
+  "overlay_type","cohort","niche","industry","intent_stage","hook_type","cta_type",
+  "hook_text","pain_points","notes","caption_text","scheduled_at"];
+const VOCAB={
+  ig_handle:["aiwithaidann","arma.dillo4479","bellabangerbuilds","cadenagents.ai",
+    "calvin.codes","chriscodeconsulting","dagundevs","eric.codesai","evanbuilds.dev",
+    "hayeswithai","jessica.jsonfile","openswarm.guatemala","openswarm.mexico",
+    "productivelypriscilla","vanessavibecodes"],
+  cohort:["indie_dev","solo_founder","eng_lead","oss_maintainer","ai_engineer",
+    "vibe_coder","agency_owner","student_dev","crypto_builder","general_smb"],
+  niche:["agent_orchestration","autonomous_coding","linear_workflows","swe_bench_results",
+    "local_llm_setup","claude_code_workflows","openrouter_routing","cost_aware_ai",
+    "discord_devops","make_money_with_agents","replace_eng_team","pr_automation",
+    "code_registry_bs_detector"],
+  industry:["dev_tools","ai_infra","saas","oss","agency","general"],
+  intent_stage:["awareness","consideration","conversion","retention"],
+  hook_type:["question","bold_claim","list_promise","pain_point","curiosity_gap",
+    "social_proof","contrarian","benchmark_flex"],
+  cta_type:["github_star","npm_install","discord_join","follow","dm_keyword",
+    "link_in_bio","comment_prompt","none"],
+  broll_source:["minecraft_parkour","subway_surfers","gta_driving","satisfying_clips",
+    "cooking","nature","none"],
+  audio_source:["peter_griffin_ai","family_guy_clip","morgan_freeman_ai","original_vo",
+    "trending_sound","none"],
+  variant_axis:["hook","audio","format","broll","demo_surface","cta","length","caption",
+    "cohort_test"],
+  pain_points:["ai_cost","model_lock_in","manual_pr_review","linear_backlog_rot",
+    "local_model_setup","ci_failures","merge_conflicts","context_loss_across_sessions",
+    "frontier_model_pricing","slow_eng_velocity","tool_overload"],
+};
+function sessFill(id,vals,{placeholder,def}={}){
+  const el=$("#sess_"+id); if(!el) return;
+  if(placeholder){ const o=document.createElement("option"); o.value=""; o.textContent=placeholder; el.appendChild(o); }
+  for(const v of vals){ const o=document.createElement("option"); o.value=v; o.textContent=v; el.appendChild(o); }
+  if(def) el.value=def;
+}
+sessFill("ig_handle",VOCAB.ig_handle,{placeholder:"— pick account —"});
+sessFill("cohort",VOCAB.cohort,{def:"indie_dev"});
+sessFill("niche",VOCAB.niche,{def:"claude_code_workflows"});
+sessFill("industry",VOCAB.industry,{def:"dev_tools"});
+sessFill("intent_stage",VOCAB.intent_stage,{def:"awareness"});
+sessFill("hook_type",VOCAB.hook_type,{def:"list_promise"});
+sessFill("cta_type",VOCAB.cta_type,{def:"follow"});
+sessFill("broll_source",VOCAB.broll_source,{def:"satisfying_clips"});
+sessFill("variant_axis",VOCAB.variant_axis,{def:"hook"});
+sessFill("pain_points",VOCAB.pain_points);
+// audio_source gets an "auto" choice: trending_sound when a song is on, else none
+(()=>{ const el=$("#sess_audio_source");
+  const a=document.createElement("option"); a.value="auto"; a.textContent="auto (from music)"; el.appendChild(a);
+  for(const v of VOCAB.audio_source){ const o=document.createElement("option"); o.value=v; o.textContent=v; el.appendChild(o); }
+  el.value="auto"; })();
+
+let SESSION=null;   // {rows:[{filename,format,overlay_type,hadMusic,hook_text,caption_text}]}
+const sessStart=$("#sessStart"), sessActive=$("#sessActive"), sessEnd=$("#sessEnd"),
+      sessCancel=$("#sessCancel"), sessCount=$("#sessCount"), sessFiles=$("#sessFiles");
+function updateSess(){
+  const n=SESSION?SESSION.rows.length:0;
+  sessCount.textContent=n+" video"+(n===1?"":"s")+" in this session";
+  renderSessRows();
+}
+// one editable line per captured export: filename · account picker · remove.
+// Splitting across accounts is just setting each row's account (or switching the
+// default between export batches, which each new row inherits).
+function renderSessRows(){
+  sessFiles.innerHTML="";
+  if(!SESSION||!SESSION.rows.length){ sessFiles.hidden=true; return; }
+  sessFiles.hidden=false;
+  SESSION.rows.forEach((r,i)=>{
+    const row=document.createElement("div"); row.className="sessrow"+(r.ig_handle?"":" warn");
+    const fn=document.createElement("span"); fn.className="fn";
+    fn.textContent=(i+1)+". "+r.filename; fn.title=r.filename;
+    const sel=document.createElement("select");
+    const ph=document.createElement("option"); ph.value=""; ph.textContent="— account —"; sel.appendChild(ph);
+    for(const h of VOCAB.ig_handle){ const o=document.createElement("option"); o.value=h; o.textContent=h; sel.appendChild(o); }
+    sel.value=r.ig_handle||"";
+    sel.onchange=()=>{ r.ig_handle=sel.value; row.classList.toggle("warn",!sel.value); };
+    const rm=document.createElement("button"); rm.type="button"; rm.className="rm";
+    rm.textContent="×"; rm.title="remove from session";
+    rm.onclick=()=>{ SESSION.rows.splice(i,1); updateSess(); };
+    row.appendChild(fn); row.appendChild(sel); row.appendChild(rm);
+    sessFiles.appendChild(row);
+  });
+}
+sessStart.onclick=()=>{ SESSION={rows:[]}; sessStart.hidden=true; sessActive.hidden=false; updateSess(); };
+sessCancel.onclick=()=>{ if(SESSION&&SESSION.rows.length&&!confirm("Discard this session and its "+SESSION.rows.length+" captured video(s)?"))return;
+  SESSION=null; sessActive.hidden=true; sessStart.hidden=false; };
+sessEnd.onclick=()=>{
+  if(!SESSION||!SESSION.rows.length){ err.textContent="No videos in this session yet — export at least one first."; return; }
+  // a blank ig_handle rejects the whole file, so every row needs an account
+  const missing=SESSION.rows.filter(r=>!r.ig_handle).length;
+  if(missing){ err.textContent=missing+" video"+(missing===1?"":"s")+" still need an account — set each row's dropdown in the list above (or the default account, then re-export).";
+    return; }
+  downloadCSV();
+  SESSION=null; sessActive.hidden=true; sessStart.hidden=false;
+};
+function sessPain(){ return Array.from($("#sess_pain_points").selectedOptions).slice(0,3).map(o=>o.value).join("|"); }
+// shared tags (everything EXCEPT the per-video account, which lives on each row)
+function sessDefaults(){ const g=id=>$("#sess_"+id).value;
+  return {experiment_id:g("experiment_id")||"solo",
+    variant_axis:g("variant_axis"),broll_source:g("broll_source"),audio_source:g("audio_source"),
+    cohort:g("cohort"),niche:g("niche"),industry:g("industry"),intent_stage:g("intent_stage"),
+    hook_type:g("hook_type"),cta_type:g("cta_type"),pain_points:sessPain()}; }
+// called on every successful export; per-video fields (incl. the account, snapshot
+// from the current default) captured here, shared tags applied at download
+function sessCapture(name){
+  if(!SESSION||!name) return;
+  const firstLine=(text.value.split("\n").map(s=>s.trim()).filter(Boolean)[0]||"").slice(0,200);
+  const row={ filename:name, ig_handle:$("#sess_ig_handle").value||"",
+    format: state.layout==="split"?"split_view_demo":"list_view_broll",
+    overlay_type: ($("#mode").value==="captions")?"single_caption":"text_list",
+    hadMusic: !!$("#music").value, hook_text:firstLine, caption_text:(state.caption||"") };
+  const i=SESSION.rows.findIndex(r=>r.filename.toLowerCase()===name.toLowerCase());
+  // re-export keeps the account you'd already assigned to that filename
+  if(i>=0){ row.ig_handle=SESSION.rows[i].ig_handle||row.ig_handle; SESSION.rows[i]=row; }
+  else SESSION.rows.push(row);
+  updateSess();
+}
+function buildCSV(){
+  const d=sessDefaults();
+  const esc=v=>{ v=(v==null?"":String(v)); return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  const out=SESSION.rows.map((r,i)=>({
+    filename:r.filename, ig_handle:r.ig_handle, experiment_id:d.experiment_id,
+    variant_id:"v"+(i+1), variant_axis:d.variant_axis, control_flag:"",
+    format:r.format, format_subtype:"", broll_source:d.broll_source, demo_surface:"",
+    audio_source: d.audio_source!=="auto"?d.audio_source:(r.hadMusic?"trending_sound":"none"),
+    overlay_type:r.overlay_type, cohort:d.cohort, niche:d.niche, industry:d.industry,
+    intent_stage:d.intent_stage, hook_type:d.hook_type, cta_type:d.cta_type,
+    hook_text:r.hook_text, pain_points:d.pain_points, notes:"", caption_text:r.caption_text,
+    scheduled_at:"" }));
+  return [CSV_COLS.join(",")].concat(out.map(r=>CSV_COLS.map(c=>esc(r[c])).join(","))).join("\r\n");
+}
+function downloadCSV(){
+  const blob=new Blob([buildCSV()],{type:"text/csv;charset=utf-8"});
+  const url=URL.createObjectURL(blob), a=document.createElement("a");
+  const dt=new Date(), p=n=>String(n).padStart(2,"0");
+  a.href=url; a.download="bulk_posts_"+dt.getFullYear()+p(dt.getMonth()+1)+p(dt.getDate())+"_"+p(dt.getHours())+p(dt.getMinutes())+".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
+}
+
 // upload
 function upload(f){
   if(!f) return;
@@ -1213,6 +1424,7 @@ exportBtn.onclick=async()=>{
       dl.href=j.url; dl.download=j.name||"";
       resultwrap.hidden=false;
       resultwrap.scrollIntoView({behavior:"smooth"});
+      sessCapture(j.name||"");   // add this export to the posting session (if one's running)
     }
   }catch(e){ err.textContent=String(e); }
   exportBtn.disabled=false; exportBtn.textContent=orig;
