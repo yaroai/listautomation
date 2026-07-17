@@ -171,6 +171,14 @@ def safe_name(name):
     return stem[:50], ext.lower()
 
 
+def safe_label(s):
+    """A user-supplied export name reduced to a safe filename stem, or None.
+    Lets each export be saved (and tagged in the posting CSV) under its own
+    name, so several videos cut from one clip don't all collide on one filename."""
+    s = SAFE.sub("_", (s or "").strip()).strip("_")
+    return s[:60] or None
+
+
 def opts_from(d):
     """Build an overlay opts dict from a request payload (all optional)."""
     def num(key, cast, default=None):
@@ -444,9 +452,11 @@ def export():
     except Exception as e:
         traceback.print_exc()
         return jsonify(error=str(e)[-1200:]), 500
-    # `name` is what the browser saves it as — the URL is uniquified per render,
-    # but the user should still get a clean filename, not "..._captioned-7.mp4".
-    return jsonify(url=f"/output/{out_name}", name=f"{base}_captioned.mp4")
+    # `name` is what the browser saves it as (and what the posting CSV tags) — the
+    # URL is uniquified per render. Prefer a per-export label so several cuts from
+    # one clip get distinct names; fall back to the clip's own name.
+    label = safe_label(d.get("out_name")) or f"{base}_captioned"
+    return jsonify(url=f"/output/{out_name}", name=f"{label}.mp4")
 
 
 @app.route("/output/<path:fn>")
@@ -633,6 +643,9 @@ PAGE = r"""<!doctype html>
     vertical-align:-2px;margin-right:7px;}
   @keyframes s{to{transform:rotate(360deg);}}
   .badge{font-size:11px;color:var(--muted);margin-top:8px;text-align:center;}
+  #outname{width:100%;background:var(--field);color:var(--fg);border:1px solid var(--line);
+    border-radius:9px;padding:8px 10px;font-size:13px;}
+  #exportmsg{color:var(--accent);font-size:12px;line-height:1.5;}
 </style></head><body>
 <header>
   <h1><span>b-roll editor</span></h1>
@@ -685,8 +698,13 @@ PAGE = r"""<!doctype html>
       <div class="stage"><video id="result" controls></video></div>
       <a id="dl" class="dl" download>⬇ Download</a>
     </div>
+    <div id="outnamewrap" hidden style="margin-top:14px">
+      <label>Export file name</label>
+      <input id="outname" type="text" spellcheck="false" placeholder="auto from the first line">
+    </div>
     <button id="preview" class="secondary" disabled>▶ Preview (watch it)</button>
     <button id="export" disabled>Export video</button>
+    <div id="exportmsg" class="badge" hidden></div>
     <div id="err" class="err"></div>
   </section>
 
@@ -978,6 +996,7 @@ scriptSel.onchange=async()=>{
   const bits=[]; if(s.caption)bits.push(s.caption); if(s.hashtags)bits.push(s.hashtags);
   meta.textContent=bits.join("\n\n"); meta.hidden=!bits.length;
   state.caption=bits.join("\n\n");   // reused as caption_text in the posting CSV
+  outnameEdited=false; autoName();    // a freshly loaded script re-derives the name
   schedulePreview();
 };
 
@@ -1089,7 +1108,7 @@ function opts(){
     border:+border.value, size:+size.value, spacing:+spacing.value,
     header_gap:+headerGap.value, footer_gap:+footerGap.value, speed:+speed.value,
     trim_start:+trimStart.value, trim_end:+trimEnd.value,
-    music:$("#music").value,
+    music:$("#music").value, out_name:$("#outname").value,
     upper:$("#upper").checked, shadow:$("#shadow").checked,
     offsets:state.secs.map(s=>[s.dx,s.dy]),   // per-section drag offset
     sizes:state.secs.map(s=>s.size||0),        // per-section size (0 = auto)
@@ -1141,6 +1160,19 @@ async function doPreview(){
 ["speed","size","spacing","header_gap","footer_gap","border"].forEach(id=>$("#"+id).addEventListener("input",schedulePreview));
 text.addEventListener("input",schedulePreview);
 scrub.addEventListener("input",()=>{ timebadge.textContent="preview @ "+(+scrub.value).toFixed(1)+"s"; schedulePreview(); });
+
+// ---- export file name: auto-slug from the script, but user-overridable ------
+// This is what makes several videos from one clip work: each export gets its
+// own name (so downloads don't collide and each becomes its own posting row).
+const outname=$("#outname"), outnamewrap=$("#outnamewrap"), exportmsg=$("#exportmsg");
+let outnameEdited=false;
+function slugFirstLine(){
+  const l=(text.value.split("\n").map(s=>s.trim()).filter(Boolean)[0]||"");
+  return l.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,50);
+}
+function autoName(){ if(!outnameEdited) outname.value=slugFirstLine(); }
+outname.addEventListener("input",()=>{ outnameEdited=!!outname.value.trim(); });
+text.addEventListener("input",autoName);
 
 // ---- trim: keep a section of the source, then speed it up -------------------
 const trimwrap=$("#trimwrap"), trimStart=$("#trimStart"), trimEnd=$("#trimEnd"),
@@ -1369,6 +1401,7 @@ function loaded(j){
   hint.innerHTML='▸ <b>'+j.name+'</b> · <span style="color:var(--accent)">change clip</span>';
   hint.style.cursor="pointer"; hint.onclick=()=>file.click();
   stagewrap.hidden=false; exportBtn.disabled=false; previewBtn.disabled=false;
+  outnamewrap.hidden=false; autoName();
   showStill(); doPreview();
 }
 drop.onclick=()=>file.click();
@@ -1425,6 +1458,9 @@ exportBtn.onclick=async()=>{
       resultwrap.hidden=false;
       resultwrap.scrollIntoView({behavior:"smooth"});
       sessCapture(j.name||"");   // add this export to the posting session (if one's running)
+      exportmsg.hidden=false;
+      exportmsg.innerHTML="✓ Exported <b>"+(j.name||"")+"</b> — download it below. "+
+        "To make another from this same clip, just change the script (or settings) and hit Export again; no need to re-upload.";
     }
   }catch(e){ err.textContent=String(e); }
   exportBtn.disabled=false; exportBtn.textContent=orig;
