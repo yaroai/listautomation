@@ -400,19 +400,27 @@ def sections():
 _renders = [0]
 
 
-def _render_out(prefix):
+def _render_out(prefix, prune=True):
     """A fresh filename for every render.
 
     Both renders used to overwrite one fixed name, so re-exporting after an
     edit returned the same URL — and the browser served the cached first cut.
-    A unique URL per render makes staleness impossible. Earlier renders of the
-    same clip are pruned so the host's ephemeral disk doesn't fill up."""
-    for f in os.listdir(OUTPUT):
-        if f.startswith(prefix):
-            try:
-                os.remove(os.path.join(OUTPUT, f))
-            except OSError:
-                pass                      # still being served; it'll go next time
+    A unique URL per render makes staleness impossible.
+
+    Previews are throwaway — one is rendered on almost every edit — so each new
+    one prunes its predecessors to keep the host's ephemeral disk in check.
+    Exports must NOT be pruned: the intended workflow is to keep a clip loaded
+    and cut several videos from it, and pruning by prefix deleted every earlier
+    export of that clip. Its Download link then 404ed (saving the error page
+    under the export's name instead of the video), and the posting CSV listed
+    files that were no longer on disk."""
+    if prune:
+        for f in os.listdir(OUTPUT):
+            if f.startswith(prefix):
+                try:
+                    os.remove(os.path.join(OUTPUT, f))
+                except OSError:
+                    pass                  # still being served; it'll go next time
     _renders[0] += 1
     name = f"{prefix}{_renders[0]}.mp4"
     return name, os.path.join(OUTPUT, name)
@@ -446,7 +454,7 @@ def export():
     if not text.strip():
         return jsonify(error="No text."), 400
     base = os.path.splitext(os.path.basename(path))[0]
-    out_name, out_path = _render_out(f"{base}_captioned-")
+    out_name, out_path = _render_out(f"{base}_captioned-", prune=False)
     try:
         overlay.render(path, out_path, text, opts_from(d))
     except Exception as e:
