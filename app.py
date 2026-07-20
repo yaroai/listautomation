@@ -454,17 +454,19 @@ def export():
     if not text.strip():
         return jsonify(error="No text."), 400
     base = os.path.splitext(os.path.basename(path))[0]
-    out_name, out_path = _render_out(f"{base}_captioned-", prune=False)
+    # The label IS the file on disk (uniquified per render), so however the user
+    # saves it — the Download link, or the video's own controls, which use the
+    # URL's basename — the saved name, the URL, and the CSV all agree. Recording
+    # a different "nice" name than the served file was why the CSV filename didn't
+    # match what landed in the downloads folder.
+    label = safe_label(d.get("out_name")) or f"{base}_captioned"
+    out_name, out_path = _render_out(f"{label}-", prune=False)
     try:
         overlay.render(path, out_path, text, opts_from(d))
     except Exception as e:
         traceback.print_exc()
         return jsonify(error=str(e)[-1200:]), 500
-    # `name` is what the browser saves it as (and what the posting CSV tags) — the
-    # URL is uniquified per render. Prefer a per-export label so several cuts from
-    # one clip get distinct names; fall back to the clip's own name.
-    label = safe_label(d.get("out_name")) or f"{base}_captioned"
-    return jsonify(url=f"/output/{out_name}", name=f"{label}.mp4")
+    return jsonify(url=f"/output/{out_name}", name=out_name)
 
 
 @app.route("/output/<path:fn>")
@@ -576,6 +578,8 @@ PAGE = r"""<!doctype html>
   .sessrow:first-child{border-top:0;}
   .sessrow .fn{flex:0 0 auto;max-width:45%;font-size:12px;font-weight:600;color:var(--fg);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .sessrow .ig{flex:0 0 auto;font-size:11px;color:var(--accent);background:var(--field);
+    border:1px solid var(--line);border-radius:6px;padding:2px 6px;white-space:nowrap;}
   .sessrow .cap{flex:1;min-width:0;font-size:12px;color:var(--muted);overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap;}
   .sessrow .rm{width:auto;margin:0;padding:1px 8px;background:none;border:1px solid var(--line);
@@ -1193,10 +1197,16 @@ trimEnd.addEventListener("change",()=>{
 speed.addEventListener("input",updateTrimUI);
 
 // ---- caption session: collect downloaded exports -> captions CSV ------------
-// One row per video actually downloaded, each carrying just the file's name and
-// the caption to post with it. No accounts, tags, or enums — the caption is the
-// selected script's caption + hashtags (state.caption).
-let SESSION=null;   // {rows:[{filename,caption_text}]}
+// One row per video actually downloaded: the file's name, an Instagram handle,
+// placeholder TikTok/YouTube handles (unused for now), and the caption to post.
+// The caption is the selected script's caption + hashtags (state.caption).
+// For now the account is just picked at random from this pool per video.
+const ACCOUNTS=["openswarm.mexico","openswarm.guatemala","eric.codesai",
+  "vanessavibecodes","dagundevs","calvin.codes","cadenagents.ai","evanbuilds.dev",
+  "aiwithaidann","arma.dillo4479","hayeswithai","jessica.jsonfile",
+  "bellabangerbuilds","productivelypriscilla","chriscodeconsulting"];
+const pickAccount=()=>ACCOUNTS[Math.floor(Math.random()*ACCOUNTS.length)];
+let SESSION=null;   // {rows:[{filename,ig_handle,tt_handle,yt_handle,caption_text}]}
 const sessStart=$("#sessStart"), sessActive=$("#sessActive"),
       sessCaptions=$("#sessCaptions"),
       sessCancel=$("#sessCancel"), sessCount=$("#sessCount"), sessFiles=$("#sessFiles");
@@ -1205,7 +1215,7 @@ function updateSess(){
   sessCount.textContent=n+" video"+(n===1?"":"s")+" in this session";
   renderSessRows();
 }
-// one line per downloaded export: filename · caption preview · remove.
+// one line per downloaded export: filename · @account · caption preview · remove.
 function renderSessRows(){
   sessFiles.innerHTML="";
   if(!SESSION||!SESSION.rows.length){ sessFiles.hidden=true; return; }
@@ -1216,11 +1226,12 @@ function renderSessRows(){
     const cap=(r.caption_text||"(no caption — pick a script before exporting)").replace(/\s+/g," ").trim();
     fn.textContent=(i+1)+". "+r.filename;
     fn.title=r.caption_text||"no caption";
+    const ig=document.createElement("span"); ig.className="ig"; ig.textContent="@"+r.ig_handle;
     const cp=document.createElement("span"); cp.className="cap"; cp.textContent=cap; cp.title=r.caption_text||"";
     const rm=document.createElement("button"); rm.type="button"; rm.className="rm";
     rm.textContent="×"; rm.title="remove from session";
     rm.onclick=()=>{ SESSION.rows.splice(i,1); updateSess(); };
-    row.appendChild(fn); row.appendChild(cp); row.appendChild(rm);
+    row.appendChild(fn); row.appendChild(ig); row.appendChild(cp); row.appendChild(rm);
     sessFiles.appendChild(row);
   });
 }
@@ -1242,7 +1253,8 @@ sessCaptions.onclick=()=>{
 let PENDING=null;
 function sessSnapshot(name){
   if(!name) return null;
-  return { filename:name, caption_text:(state.caption||"") };
+  return { filename:name, ig_handle:pickAccount(), tt_handle:"", yt_handle:"",
+    caption_text:(state.caption||"") };
 }
 function sessCommit(){
   if(!SESSION||!PENDING) return;
@@ -1263,10 +1275,11 @@ function sessCommit(){
 }
 dl.addEventListener("click",sessCommit);
 const csvEsc=v=>{ v=(v==null?"":String(v)); return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
-// Two columns: the file you downloaded and the caption to paste with it.
+// filename, the three platform handles (only ig used for now), then the caption.
 function buildCaptionsCSV(){
-  const rows=SESSION.rows.map(r=>[csvEsc(r.filename),csvEsc(r.caption_text)].join(","));
-  return ["filename,caption"].concat(rows).join("\r\n");
+  const rows=SESSION.rows.map(r=>[r.filename,r.ig_handle,r.tt_handle,r.yt_handle,r.caption_text]
+    .map(csvEsc).join(","));
+  return ["filename,ig_handle,tt_handle,yt_handle,caption"].concat(rows).join("\r\n");
 }
 function downloadBlob(text,prefix){
   const blob=new Blob([text],{type:"text/csv;charset=utf-8"});
