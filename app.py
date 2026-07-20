@@ -574,23 +574,14 @@ PAGE = r"""<!doctype html>
   #sessFiles{margin-bottom:10px;}
   .sessrow{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);}
   .sessrow:first-child{border-top:0;}
-  .sessrow .fn{flex:1;min-width:0;font-size:12px;color:var(--fg);overflow:hidden;
+  .sessrow .fn{flex:0 0 auto;max-width:45%;font-size:12px;font-weight:600;color:var(--fg);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .sessrow .cap{flex:1;min-width:0;font-size:12px;color:var(--muted);overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap;}
-  .sessrow select{width:auto;flex:0 0 auto;max-width:160px;font-size:12px;padding:5px 6px;}
   .sessrow .rm{width:auto;margin:0;padding:1px 8px;background:none;border:1px solid var(--line);
     color:var(--muted);font-size:15px;line-height:1.3;border-radius:7px;cursor:pointer;flex:0 0 auto;}
   .sessrow .rm:hover{border-color:var(--accent2);color:var(--accent2);}
-  .sessrow.warn select{border-color:var(--accent2);}
-  #sessDefaults{background:var(--field);border:1px solid var(--line);border-radius:10px;
-    padding:10px 12px;}
-  #sessDefaults summary{font-size:11px;color:var(--muted);cursor:pointer;
-    text-transform:uppercase;letter-spacing:.5px;}
-  .sessgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;margin:10px 0;}
-  .sessgrid .full{grid-column:1/3;}
-  .sessgrid label{margin-bottom:4px;}
-  #session input[type=text]{width:100%;background:var(--field);color:var(--fg);
-    border:1px solid var(--line);border-radius:9px;padding:8px;font-size:13px;}
-  #sess_pain_points{height:auto;}
+  .sessrow.warn .cap{color:var(--accent2);}
   .handle{position:absolute;width:14px;height:14px;background:var(--accent);
     border:2px solid #08080c;border-radius:3px;pointer-events:auto;touch-action:none;}
   .handle.tl{top:-7px;left:-7px;cursor:nwse-resize;}
@@ -718,35 +709,18 @@ PAGE = r"""<!doctype html>
 
   <!-- RIGHT: controls -->
   <section class="card">
-    <!-- posting session: collect every export, then emit a bulk-posting CSV -->
+    <!-- caption session: collect every downloaded export, then download a captions CSV -->
     <div id="session">
-      <button type="button" id="sessStart" class="secondary sessbtn">● Start posting session</button>
+      <button type="button" id="sessStart" class="secondary sessbtn">● Start caption session</button>
       <div id="sessActive" hidden>
         <div class="sessbar">
           <span class="sessdot"></span>
           <span id="sessCount">0 videos in this session</span>
-          <button type="button" id="sessEnd" class="sessbtn">End · download CSV</button>
+          <button type="button" id="sessCaptions" class="sessbtn">Download captions CSV</button>
           <button type="button" id="sessCancel" class="sesslink">cancel</button>
         </div>
+        <div class="splitnote">Each video joins the list below when you download it. The captions CSV pairs every downloaded file with its caption.</div>
         <div id="sessFiles" hidden></div>
-        <details id="sessDefaults" open>
-          <summary>Session tags — applied to every video</summary>
-          <div class="sessgrid">
-            <div><label>Default account (new exports)</label><select id="sess_ig_handle"></select></div>
-            <div><label>Experiment id</label><input type="text" id="sess_experiment_id" value="solo" spellcheck="false"></div>
-            <div><label>Cohort</label><select id="sess_cohort"></select></div>
-            <div><label>Niche</label><select id="sess_niche"></select></div>
-            <div><label>Industry</label><select id="sess_industry"></select></div>
-            <div><label>Intent stage</label><select id="sess_intent_stage"></select></div>
-            <div><label>Hook type</label><select id="sess_hook_type"></select></div>
-            <div><label>CTA type</label><select id="sess_cta_type"></select></div>
-            <div><label>B-roll source</label><select id="sess_broll_source"></select></div>
-            <div><label>Audio source</label><select id="sess_audio_source"></select></div>
-            <div><label>Variant axis</label><select id="sess_variant_axis"></select></div>
-            <div class="full"><label>Pain points (up to 3)</label><select id="sess_pain_points" multiple size="4"></select></div>
-          </div>
-          <div class="splitnote">Each export is added below with its own account — switch the default between batches (or edit any row) to split 10 videos 3/3/3/1 across accounts. Filename, format, overlay, hook line &amp; caption are captured automatically; the rest come from these tags.</div>
-        </details>
       </div>
     </div>
 
@@ -1218,130 +1192,57 @@ trimEnd.addEventListener("change",()=>{
   scrub.dispatchEvent(new Event("input")); });
 speed.addEventListener("input",updateTrimUI);
 
-// ---- posting session: collect exports -> bulk-posting CSV -------------------
-// The vocab + column order mirror BULK_CSV_GUIDE.md exactly, so a downloaded
-// file imports cleanly into the posting app. Enum dropdowns can only hold valid
-// values (the guide's rule #3). Anything the editor can't know is left to the
-// shared "session tags" or blank for you to finish in the app's grid.
-const CSV_COLS=["filename","ig_handle","experiment_id","variant_id","variant_axis",
-  "control_flag","format","format_subtype","broll_source","demo_surface","audio_source",
-  "overlay_type","cohort","niche","industry","intent_stage","hook_type","cta_type",
-  "hook_text","pain_points","notes","caption_text","scheduled_at"];
-const VOCAB={
-  ig_handle:["aiwithaidann","arma.dillo4479","bellabangerbuilds","cadenagents.ai",
-    "calvin.codes","chriscodeconsulting","dagundevs","eric.codesai","evanbuilds.dev",
-    "hayeswithai","jessica.jsonfile","openswarm.guatemala","openswarm.mexico",
-    "productivelypriscilla","vanessavibecodes"],
-  cohort:["indie_dev","solo_founder","eng_lead","oss_maintainer","ai_engineer",
-    "vibe_coder","agency_owner","student_dev","crypto_builder","general_smb"],
-  niche:["agent_orchestration","autonomous_coding","linear_workflows","swe_bench_results",
-    "local_llm_setup","claude_code_workflows","openrouter_routing","cost_aware_ai",
-    "discord_devops","make_money_with_agents","replace_eng_team","pr_automation",
-    "code_registry_bs_detector"],
-  industry:["dev_tools","ai_infra","saas","oss","agency","general"],
-  intent_stage:["awareness","consideration","conversion","retention"],
-  hook_type:["question","bold_claim","list_promise","pain_point","curiosity_gap",
-    "social_proof","contrarian","benchmark_flex"],
-  cta_type:["github_star","npm_install","discord_join","follow","dm_keyword",
-    "link_in_bio","comment_prompt","none"],
-  broll_source:["minecraft_parkour","subway_surfers","gta_driving","satisfying_clips",
-    "cooking","nature","none"],
-  audio_source:["peter_griffin_ai","family_guy_clip","morgan_freeman_ai","original_vo",
-    "trending_sound","none"],
-  variant_axis:["hook","audio","format","broll","demo_surface","cta","length","caption",
-    "cohort_test"],
-  pain_points:["ai_cost","model_lock_in","manual_pr_review","linear_backlog_rot",
-    "local_model_setup","ci_failures","merge_conflicts","context_loss_across_sessions",
-    "frontier_model_pricing","slow_eng_velocity","tool_overload"],
-};
-function sessFill(id,vals,{placeholder,def}={}){
-  const el=$("#sess_"+id); if(!el) return;
-  if(placeholder){ const o=document.createElement("option"); o.value=""; o.textContent=placeholder; el.appendChild(o); }
-  for(const v of vals){ const o=document.createElement("option"); o.value=v; o.textContent=v; el.appendChild(o); }
-  if(def) el.value=def;
-}
-sessFill("ig_handle",VOCAB.ig_handle,{placeholder:"— pick account —"});
-sessFill("cohort",VOCAB.cohort,{def:"indie_dev"});
-sessFill("niche",VOCAB.niche,{def:"claude_code_workflows"});
-sessFill("industry",VOCAB.industry,{def:"dev_tools"});
-sessFill("intent_stage",VOCAB.intent_stage,{def:"awareness"});
-sessFill("hook_type",VOCAB.hook_type,{def:"list_promise"});
-sessFill("cta_type",VOCAB.cta_type,{def:"follow"});
-sessFill("broll_source",VOCAB.broll_source,{def:"satisfying_clips"});
-sessFill("variant_axis",VOCAB.variant_axis,{def:"hook"});
-sessFill("pain_points",VOCAB.pain_points);
-// audio_source gets an "auto" choice: trending_sound when a song is on, else none
-(()=>{ const el=$("#sess_audio_source");
-  const a=document.createElement("option"); a.value="auto"; a.textContent="auto (from music)"; el.appendChild(a);
-  for(const v of VOCAB.audio_source){ const o=document.createElement("option"); o.value=v; o.textContent=v; el.appendChild(o); }
-  el.value="auto"; })();
-
-let SESSION=null;   // {rows:[{filename,format,overlay_type,hadMusic,hook_text,caption_text}]}
-const sessStart=$("#sessStart"), sessActive=$("#sessActive"), sessEnd=$("#sessEnd"),
+// ---- caption session: collect downloaded exports -> captions CSV ------------
+// One row per video actually downloaded, each carrying just the file's name and
+// the caption to post with it. No accounts, tags, or enums — the caption is the
+// selected script's caption + hashtags (state.caption).
+let SESSION=null;   // {rows:[{filename,caption_text}]}
+const sessStart=$("#sessStart"), sessActive=$("#sessActive"),
+      sessCaptions=$("#sessCaptions"),
       sessCancel=$("#sessCancel"), sessCount=$("#sessCount"), sessFiles=$("#sessFiles");
 function updateSess(){
   const n=SESSION?SESSION.rows.length:0;
   sessCount.textContent=n+" video"+(n===1?"":"s")+" in this session";
   renderSessRows();
 }
-// one editable line per captured export: filename · account picker · remove.
-// Splitting across accounts is just setting each row's account (or switching the
-// default between export batches, which each new row inherits).
+// one line per downloaded export: filename · caption preview · remove.
 function renderSessRows(){
   sessFiles.innerHTML="";
   if(!SESSION||!SESSION.rows.length){ sessFiles.hidden=true; return; }
   sessFiles.hidden=false;
   SESSION.rows.forEach((r,i)=>{
-    const row=document.createElement("div"); row.className="sessrow"+(r.ig_handle?"":" warn");
+    const row=document.createElement("div"); row.className="sessrow"+(r.caption_text?"":" warn");
     const fn=document.createElement("span"); fn.className="fn";
-    fn.textContent=(i+1)+". "+r.filename; fn.title=r.filename;
-    const sel=document.createElement("select");
-    const ph=document.createElement("option"); ph.value=""; ph.textContent="— account —"; sel.appendChild(ph);
-    for(const h of VOCAB.ig_handle){ const o=document.createElement("option"); o.value=h; o.textContent=h; sel.appendChild(o); }
-    sel.value=r.ig_handle||"";
-    sel.onchange=()=>{ r.ig_handle=sel.value; row.classList.toggle("warn",!sel.value); };
+    const cap=(r.caption_text||"(no caption — pick a script before exporting)").replace(/\s+/g," ").trim();
+    fn.textContent=(i+1)+". "+r.filename;
+    fn.title=r.caption_text||"no caption";
+    const cp=document.createElement("span"); cp.className="cap"; cp.textContent=cap; cp.title=r.caption_text||"";
     const rm=document.createElement("button"); rm.type="button"; rm.className="rm";
     rm.textContent="×"; rm.title="remove from session";
     rm.onclick=()=>{ SESSION.rows.splice(i,1); updateSess(); };
-    row.appendChild(fn); row.appendChild(sel); row.appendChild(rm);
+    row.appendChild(fn); row.appendChild(cp); row.appendChild(rm);
     sessFiles.appendChild(row);
   });
 }
 sessStart.onclick=()=>{ SESSION={rows:[]}; sessStart.hidden=true; sessActive.hidden=false; updateSess(); };
 sessCancel.onclick=()=>{ if(SESSION&&SESSION.rows.length&&!confirm("Discard this session and its "+SESSION.rows.length+" captured video(s)?"))return;
   SESSION=null; sessActive.hidden=true; sessStart.hidden=false; };
-sessEnd.onclick=()=>{
+// Captions only: no account/tag requirement — just the file names and captions.
+sessCaptions.onclick=()=>{
   if(!SESSION||!SESSION.rows.length){ err.textContent="No videos in this session yet — export one, then click Download (a video only joins the session once it's saved to disk)."; return; }
-  // a blank ig_handle rejects the whole file, so every row needs an account
-  const missing=SESSION.rows.filter(r=>!r.ig_handle).length;
-  if(missing){ err.textContent=missing+" video"+(missing===1?"":"s")+" still need an account — set each row's dropdown in the list above (or the default account, then re-export).";
-    return; }
-  downloadCSV();
+  err.textContent="";
+  downloadBlob(buildCaptionsCSV(),"captions");
   SESSION=null; sessActive.hidden=true; sessStart.hidden=false;
 };
-function sessPain(){ return Array.from($("#sess_pain_points").selectedOptions).slice(0,3).map(o=>o.value).join("|"); }
-// shared tags (everything EXCEPT the per-video account, which lives on each row)
-function sessDefaults(){ const g=id=>$("#sess_"+id).value;
-  return {experiment_id:g("experiment_id")||"solo",
-    variant_axis:g("variant_axis"),broll_source:g("broll_source"),audio_source:g("audio_source"),
-    cohort:g("cohort"),niche:g("niche"),industry:g("industry"),intent_stage:g("intent_stage"),
-    hook_type:g("hook_type"),cta_type:g("cta_type"),pain_points:sessPain()}; }
-// called on every successful export; per-video fields (incl. the account, snapshot
-// from the current default) captured here, shared tags applied at download
 // A finished render is only a *candidate* row: nothing exists on disk until the
 // Download link is clicked, since j.name is just an `a.download` request. Adding
-// the row at export time produced CSVs naming files that were never saved, which
-// the posting app rejects with "no matching dropped video". So the metadata is
-// snapshotted here — while the editor still holds the settings it was rendered
-// with — and only committed to the session once the download actually fires.
+// the row at export time produced captions for files that were never saved. So
+// the caption is snapshotted here — while the editor still holds the script it
+// was rendered with — and only committed once the download actually fires.
 let PENDING=null;
 function sessSnapshot(name){
   if(!name) return null;
-  const firstLine=(text.value.split("\n").map(s=>s.trim()).filter(Boolean)[0]||"").slice(0,200);
-  return { filename:name, ig_handle:$("#sess_ig_handle").value||"",
-    format: state.layout==="split"?"split_view_demo":"list_view_broll",
-    overlay_type: ($("#mode").value==="captions")?"single_caption":"text_list",
-    hadMusic: !!$("#music").value, hook_text:firstLine, caption_text:(state.caption||"") };
+  return { filename:name, caption_text:(state.caption||"") };
 }
 function sessCommit(){
   if(!SESSION||!PENDING) return;
@@ -1352,7 +1253,6 @@ function sessCommit(){
     // downloads folder, so the browser silently saves this one as "name (1).mp4"
     // and the row would point at a file that doesn't exist. JS can't read the
     // name the browser actually used, so flag it rather than emit a bad row.
-    row.ig_handle=SESSION.rows[i].ig_handle||row.ig_handle;   // keep assigned account
     SESSION.rows[i]=row;
     err.textContent='"'+row.filename+'" was already downloaded in this session, so your '
       +'browser most likely saved this copy as "'+row.filename.replace(/\.mp4$/,"")+' (1).mp4" '
@@ -1362,25 +1262,17 @@ function sessCommit(){
   updateSess();
 }
 dl.addEventListener("click",sessCommit);
-function buildCSV(){
-  const d=sessDefaults();
-  const esc=v=>{ v=(v==null?"":String(v)); return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
-  const out=SESSION.rows.map((r,i)=>({
-    filename:r.filename, ig_handle:r.ig_handle, experiment_id:d.experiment_id,
-    variant_id:"v"+(i+1), variant_axis:d.variant_axis, control_flag:"",
-    format:r.format, format_subtype:"", broll_source:d.broll_source, demo_surface:"",
-    audio_source: d.audio_source!=="auto"?d.audio_source:(r.hadMusic?"trending_sound":"none"),
-    overlay_type:r.overlay_type, cohort:d.cohort, niche:d.niche, industry:d.industry,
-    intent_stage:d.intent_stage, hook_type:d.hook_type, cta_type:d.cta_type,
-    hook_text:r.hook_text, pain_points:d.pain_points, notes:"", caption_text:r.caption_text,
-    scheduled_at:"" }));
-  return [CSV_COLS.join(",")].concat(out.map(r=>CSV_COLS.map(c=>esc(r[c])).join(","))).join("\r\n");
+const csvEsc=v=>{ v=(v==null?"":String(v)); return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+// Two columns: the file you downloaded and the caption to paste with it.
+function buildCaptionsCSV(){
+  const rows=SESSION.rows.map(r=>[csvEsc(r.filename),csvEsc(r.caption_text)].join(","));
+  return ["filename,caption"].concat(rows).join("\r\n");
 }
-function downloadCSV(){
-  const blob=new Blob([buildCSV()],{type:"text/csv;charset=utf-8"});
+function downloadBlob(text,prefix){
+  const blob=new Blob([text],{type:"text/csv;charset=utf-8"});
   const url=URL.createObjectURL(blob), a=document.createElement("a");
   const dt=new Date(), p=n=>String(n).padStart(2,"0");
-  a.href=url; a.download="bulk_posts_"+dt.getFullYear()+p(dt.getMonth()+1)+p(dt.getDate())+"_"+p(dt.getHours())+p(dt.getMinutes())+".csv";
+  a.href=url; a.download=prefix+"_"+dt.getFullYear()+p(dt.getMonth()+1)+p(dt.getDate())+"_"+p(dt.getHours())+p(dt.getMinutes())+".csv";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
