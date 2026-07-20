@@ -1303,7 +1303,7 @@ sessStart.onclick=()=>{ SESSION={rows:[]}; sessStart.hidden=true; sessActive.hid
 sessCancel.onclick=()=>{ if(SESSION&&SESSION.rows.length&&!confirm("Discard this session and its "+SESSION.rows.length+" captured video(s)?"))return;
   SESSION=null; sessActive.hidden=true; sessStart.hidden=false; };
 sessEnd.onclick=()=>{
-  if(!SESSION||!SESSION.rows.length){ err.textContent="No videos in this session yet — export at least one first."; return; }
+  if(!SESSION||!SESSION.rows.length){ err.textContent="No videos in this session yet — export one, then click Download (a video only joins the session once it's saved to disk)."; return; }
   // a blank ig_handle rejects the whole file, so every row needs an account
   const missing=SESSION.rows.filter(r=>!r.ig_handle).length;
   if(missing){ err.textContent=missing+" video"+(missing===1?"":"s")+" still need an account — set each row's dropdown in the list above (or the default account, then re-export).";
@@ -1320,19 +1320,40 @@ function sessDefaults(){ const g=id=>$("#sess_"+id).value;
     hook_type:g("hook_type"),cta_type:g("cta_type"),pain_points:sessPain()}; }
 // called on every successful export; per-video fields (incl. the account, snapshot
 // from the current default) captured here, shared tags applied at download
-function sessCapture(name){
-  if(!SESSION||!name) return;
+// A finished render is only a *candidate* row: nothing exists on disk until the
+// Download link is clicked, since j.name is just an `a.download` request. Adding
+// the row at export time produced CSVs naming files that were never saved, which
+// the posting app rejects with "no matching dropped video". So the metadata is
+// snapshotted here — while the editor still holds the settings it was rendered
+// with — and only committed to the session once the download actually fires.
+let PENDING=null;
+function sessSnapshot(name){
+  if(!name) return null;
   const firstLine=(text.value.split("\n").map(s=>s.trim()).filter(Boolean)[0]||"").slice(0,200);
-  const row={ filename:name, ig_handle:$("#sess_ig_handle").value||"",
+  return { filename:name, ig_handle:$("#sess_ig_handle").value||"",
     format: state.layout==="split"?"split_view_demo":"list_view_broll",
     overlay_type: ($("#mode").value==="captions")?"single_caption":"text_list",
     hadMusic: !!$("#music").value, hook_text:firstLine, caption_text:(state.caption||"") };
-  const i=SESSION.rows.findIndex(r=>r.filename.toLowerCase()===name.toLowerCase());
-  // re-export keeps the account you'd already assigned to that filename
-  if(i>=0){ row.ig_handle=SESSION.rows[i].ig_handle||row.ig_handle; SESSION.rows[i]=row; }
-  else SESSION.rows.push(row);
+}
+function sessCommit(){
+  if(!SESSION||!PENDING) return;
+  const row=Object.assign({},PENDING);
+  const i=SESSION.rows.findIndex(r=>r.filename.toLowerCase()===row.filename.toLowerCase());
+  if(i>=0){
+    // Same name downloaded twice in one session: the first copy is already in the
+    // downloads folder, so the browser silently saves this one as "name (1).mp4"
+    // and the row would point at a file that doesn't exist. JS can't read the
+    // name the browser actually used, so flag it rather than emit a bad row.
+    row.ig_handle=SESSION.rows[i].ig_handle||row.ig_handle;   // keep assigned account
+    SESSION.rows[i]=row;
+    err.textContent='"'+row.filename+'" was already downloaded in this session, so your '
+      +'browser most likely saved this copy as "'+row.filename.replace(/\.mp4$/,"")+' (1).mp4" '
+      +"— which won't match the CSV. Delete the older copy, or change the export file name "
+      +"and download again.";
+  } else SESSION.rows.push(row);
   updateSess();
 }
+dl.addEventListener("click",sessCommit);
 function buildCSV(){
   const d=sessDefaults();
   const esc=v=>{ v=(v==null?"":String(v)); return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
@@ -1457,9 +1478,11 @@ exportBtn.onclick=async()=>{
       dl.href=j.url; dl.download=j.name||"";
       resultwrap.hidden=false;
       resultwrap.scrollIntoView({behavior:"smooth"});
-      sessCapture(j.name||"");   // add this export to the posting session (if one's running)
+      PENDING=sessSnapshot(j.name||"");   // joins the session only once downloaded
       exportmsg.hidden=false;
-      exportmsg.innerHTML="✓ Exported <b>"+(j.name||"")+"</b> — download it below. "+
+      exportmsg.innerHTML="✓ Exported <b>"+(j.name||"")+"</b> — "+
+        (SESSION?"<b>download it below to add it to the session</b> (the CSV only lists files you've actually saved). "
+                :"download it below. ")+
         "To make another from this same clip, just change the script (or settings) and hit Export again; no need to re-upload.";
     }
   }catch(e){ err.textContent=String(e); }
